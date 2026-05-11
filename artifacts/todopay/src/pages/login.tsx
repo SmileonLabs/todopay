@@ -70,10 +70,7 @@ export default function Login() {
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-2xl">
           <CardHeader className="space-y-1 pb-6">
-            <CardTitle className="text-2xl text-center">어드민 로그인</CardTitle>
-            <CardDescription className="text-center">
-              계정 정보를 입력하여 포털에 접속하세요
-            </CardDescription>
+            <CardTitle className="text-2xl text-center">관리자 로그인</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -112,16 +109,6 @@ export default function Login() {
             </form>
           </CardContent>
         </Card>
-
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground mb-2">일반 회원이신가요?</p>
-          <a
-            href="/register/member"
-            className="inline-flex items-center justify-center text-sm font-medium text-primary hover:text-primary/80 underline-offset-4 hover:underline transition-colors"
-          >
-            회원 가입하기
-          </a>
-        </div>
 
         <div className="text-center text-xs text-muted-foreground">
           &copy; {new Date().getFullYear()} TodoPay Financial Operations. All rights reserved.
