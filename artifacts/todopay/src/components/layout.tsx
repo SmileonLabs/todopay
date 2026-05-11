@@ -16,6 +16,7 @@ import {
   KeyRound,
   LogOut,
   Menu,
+  UserCog,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -80,6 +81,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/statistics", label: "일자별 통계", icon: BarChart3 },
     { href: "/notices", label: "공지사항", icon: Bell },
     { href: "/otp", label: "OTP 설정", icon: KeyRound },
+    { href: "/profile", label: "내 계정", icon: UserCog },
   ];
 
   return (

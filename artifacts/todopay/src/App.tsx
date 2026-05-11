@@ -18,6 +18,7 @@ import Fees from "./pages/fees";
 import Statistics from "./pages/statistics";
 import Notices from "./pages/notices";
 import Otp from "./pages/otp";
+import Profile from "./pages/profile";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -75,6 +76,9 @@ function Router() {
       </Route>
       <Route path="/otp">
         <Layout><Otp /></Layout>
+      </Route>
+      <Route path="/profile">
+        <Layout><Profile /></Layout>
       </Route>
 
       <Route component={NotFound} />
