@@ -116,7 +116,7 @@ export default function Login() {
         <div className="text-center">
           <p className="text-sm text-muted-foreground mb-2">일반 회원이신가요?</p>
           <a
-            href="/register/buyer"
+            href="/register/member"
             className="inline-flex items-center justify-center text-sm font-medium text-primary hover:text-primary/80 underline-offset-4 hover:underline transition-colors"
           >
             회원 가입하기

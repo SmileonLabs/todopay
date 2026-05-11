@@ -49,7 +49,7 @@ async function formatMember(m: typeof membersTable.$inferSelect) {
 
 router.get("/members/register-link", (_req, res) => {
   const baseUrl = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
-  res.json({ url: `https://${baseUrl}/register/buyer` });
+  res.json({ url: `https://${baseUrl}/register/member` });
 });
 
 router.get("/members", async (req, res) => {

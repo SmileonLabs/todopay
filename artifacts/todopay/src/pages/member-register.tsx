@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader2, CheckCircle2, Landmark, CopyCheck, Copy } from "lucide-react";
 
-interface BuyerResult {
+interface MemberResult {
   name: string;
   loginId: string;
   virtualAccountBank: string;
@@ -27,7 +27,7 @@ function formatPhone(value: string): string {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }
 
-export default function BuyerRegister() {
+export default function MemberRegister() {
   const [form, setForm] = useState({
     name: "",
     loginId: "",
@@ -38,7 +38,7 @@ export default function BuyerRegister() {
   });
   const [errors, setErrors] = useState<Partial<typeof form>>({});
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<BuyerResult | null>(null);
+  const [result, setResult] = useState<MemberResult | null>(null);
   const [apiError, setApiError] = useState("");
   const [copied, setCopied] = useState(false);
 
@@ -83,7 +83,7 @@ export default function BuyerRegister() {
         setApiError(data.error ?? "가입에 실패했습니다. 다시 시도해주세요.");
         return;
       }
-      const data = await res.json() as BuyerResult;
+      const data = await res.json() as MemberResult;
       setResult(data);
     } catch {
       setApiError("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
@@ -182,7 +182,6 @@ export default function BuyerRegister() {
           </CardHeader>
           <CardContent>
             <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4" noValidate>
-              {/* Name */}
               <div className="space-y-1.5">
                 <Label htmlFor="name" className="text-xs text-muted-foreground">
                   이름 <span className="text-red-400">*</span>
@@ -197,7 +196,6 @@ export default function BuyerRegister() {
                 {errors.name && <p className="text-xs text-red-400">{errors.name}</p>}
               </div>
 
-              {/* Login ID */}
               <div className="space-y-1.5">
                 <Label htmlFor="loginId" className="text-xs text-muted-foreground">
                   아이디 <span className="text-red-400">*</span>
@@ -212,7 +210,6 @@ export default function BuyerRegister() {
                 {errors.loginId && <p className="text-xs text-red-400">{errors.loginId}</p>}
               </div>
 
-              {/* Password */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="password" className="text-xs text-muted-foreground">
@@ -244,7 +241,6 @@ export default function BuyerRegister() {
                 </div>
               </div>
 
-              {/* Phone */}
               <div className="space-y-1.5">
                 <Label htmlFor="phone" className="text-xs text-muted-foreground">
                   전화번호 <span className="text-red-400">*</span>
@@ -260,7 +256,6 @@ export default function BuyerRegister() {
                 {errors.phone && <p className="text-xs text-red-400">{errors.phone}</p>}
               </div>
 
-              {/* Birthdate */}
               <div className="space-y-1.5">
                 <Label htmlFor="birthdate" className="text-xs text-muted-foreground">
                   생년월일 <span className="text-red-400">*</span>
