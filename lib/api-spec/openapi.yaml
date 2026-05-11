@@ -3,20 +3,44 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: TodoPay API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication
+  - name: users
+    description: User management
+  - name: members
+    description: Member management
+  - name: buyers
+    description: Buyer management
+  - name: virtual-accounts
+    description: Virtual account management
+  - name: withdrawals
+    description: Withdrawal requests
+  - name: transactions
+    description: Account transactions
+  - name: balances
+    description: Balance and charging management
+  - name: fees
+    description: Fee configuration
+  - name: statistics
+    description: Daily statistics
+  - name: notices
+    description: Notice board
+  - name: otp
+    description: OTP settings
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +48,912 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # Auth
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  # Users (Admin hierarchy)
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List users
+      parameters:
+        - name: role
+          in: query
+          schema:
+            type: string
+        - name: parentId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUserList"
+    post:
+      operationId: createUser
+      tags: [users]
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+    patch:
+      operationId: updateUser
+      tags: [users]
+      summary: Update user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminUserUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+    delete:
+      operationId: deleteUser
+      tags: [users]
+      summary: Delete user
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /users/{id}/reset-password:
+    post:
+      operationId: resetUserPassword
+      tags: [users]
+      summary: Reset user password
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordInput"
+      responses:
+        "200":
+          description: Password reset
+
+  /users/{id}/permission:
+    patch:
+      operationId: updateUserPermission
+      tags: [users]
+      summary: Update user permission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserPermissionUpdate"
+      responses:
+        "200":
+          description: Permission updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminUser"
+
+  # Members (회원)
+  /members:
+    get:
+      operationId: listMembers
+      tags: [members]
+      summary: List members
+      parameters:
+        - name: storeCode
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of members
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MemberList"
+    post:
+      operationId: createMember
+      tags: [members]
+      summary: Register member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+
+  /members/{id}:
+    get:
+      operationId: getMember
+      tags: [members]
+      summary: Get member
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Member
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+    patch:
+      operationId: updateMember
+      tags: [members]
+      summary: Update member
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MemberUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Member"
+
+  /members/{id}/status:
+    patch:
+      operationId: updateMemberStatus
+      tags: [members]
+      summary: Update member status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StatusUpdate"
+      responses:
+        "200":
+          description: Status updated
+
+  # Buyers (구매자)
+  /buyers:
+    get:
+      operationId: listBuyers
+      tags: [buyers]
+      summary: List buyers
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of buyers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuyerList"
+    post:
+      operationId: createBuyer
+      tags: [buyers]
+      summary: Register buyer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuyerInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Buyer"
+
+  /buyers/{id}:
+    get:
+      operationId: getBuyer
+      tags: [buyers]
+      summary: Get buyer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Buyer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Buyer"
+    delete:
+      operationId: deleteBuyer
+      tags: [buyers]
+      summary: Delete buyer (revoke virtual account)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /buyers/{id}/virtual-account:
+    post:
+      operationId: reissueBuyerVirtualAccount
+      tags: [buyers]
+      summary: Reissue virtual account for buyer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reissued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Buyer"
+
+  /buyers/register-link:
+    get:
+      operationId: getBuyerRegisterLink
+      tags: [buyers]
+      summary: Get buyer registration link
+      responses:
+        "200":
+          description: Registration link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RegisterLink"
+
+  # Virtual Accounts
+  /virtual-accounts:
+    get:
+      operationId: listVirtualAccounts
+      tags: [virtual-accounts]
+      summary: List virtual accounts
+      parameters:
+        - name: memberId
+          in: query
+          schema:
+            type: ["integer", "null"]
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of virtual accounts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VirtualAccountList"
+
+  /virtual-accounts/{id}:
+    get:
+      operationId: getVirtualAccount
+      tags: [virtual-accounts]
+      summary: Get virtual account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Virtual account
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VirtualAccount"
+
+  # Withdrawals (출금 요청)
+  /withdrawals:
+    get:
+      operationId: listWithdrawals
+      tags: [withdrawals]
+      summary: List withdrawal requests
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: approvalStatus
+          in: query
+          schema:
+            type: string
+        - name: withdrawalStatus
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of withdrawals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalList"
+    post:
+      operationId: createWithdrawal
+      tags: [withdrawals]
+      summary: Create withdrawal request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WithdrawalInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Withdrawal"
+
+  /withdrawals/{id}/approve:
+    post:
+      operationId: approveWithdrawal
+      tags: [withdrawals]
+      summary: Approve withdrawal request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Withdrawal"
+
+  /withdrawals/{id}/reject:
+    post:
+      operationId: rejectWithdrawal
+      tags: [withdrawals]
+      summary: Reject withdrawal request
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectInput"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Withdrawal"
+
+  /withdrawals/summary:
+    get:
+      operationId: getWithdrawalSummary
+      tags: [withdrawals]
+      summary: Get withdrawal summary totals
+      responses:
+        "200":
+          description: Withdrawal summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WithdrawalSummary"
+
+  # Transactions (계좌 입출금 내역)
+  /transactions:
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List account transactions
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransactionList"
+
+  # Balances (충전금액 관리)
+  /balances:
+    get:
+      operationId: listBalanceRecords
+      tags: [balances]
+      summary: List balance records
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: type
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of balance records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceRecordList"
+
+  /balances/summary:
+    get:
+      operationId: getBalanceSummary
+      tags: [balances]
+      summary: Get balance summary (잔액, 지급보류)
+      responses:
+        "200":
+          description: Balance summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceSummary"
+
+  # Fees (수수료 설정)
+  /fees:
+    get:
+      operationId: listFees
+      tags: [fees]
+      summary: List fee configurations
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: Fee configurations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FeeConfig"
+    post:
+      operationId: createFeeConfig
+      tags: [fees]
+      summary: Create fee configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeeConfigInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeeConfig"
+
+  /fees/{id}:
+    patch:
+      operationId: updateFeeConfig
+      tags: [fees]
+      summary: Update fee configuration
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FeeConfigUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeeConfig"
+
+  # Statistics (일자별 통계)
+  /statistics/daily:
+    get:
+      operationId: getDailyStatistics
+      tags: [statistics]
+      summary: Get daily statistics
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Daily statistics
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DailyStatistic"
+
+  /statistics/overview:
+    get:
+      operationId: getStatisticsOverview
+      tags: [statistics]
+      summary: Get statistics overview (dashboard summary)
+      responses:
+        "200":
+          description: Overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatisticsOverview"
+
+  # Notices (공지사항)
+  /notices:
+    get:
+      operationId: listNotices
+      tags: [notices]
+      summary: List notices
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of notices
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NoticeList"
+    post:
+      operationId: createNotice
+      tags: [notices]
+      summary: Create notice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoticeInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notice"
+
+  /notices/{id}:
+    get:
+      operationId: getNotice
+      tags: [notices]
+      summary: Get notice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Notice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notice"
+    patch:
+      operationId: updateNotice
+      tags: [notices]
+      summary: Update notice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoticeUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Notice"
+    delete:
+      operationId: deleteNotice
+      tags: [notices]
+      summary: Delete notice
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # OTP
+  /otp/settings:
+    get:
+      operationId: getOtpSettings
+      tags: [otp]
+      summary: Get OTP settings
+      responses:
+        "200":
+          description: OTP settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpSettings"
+    patch:
+      operationId: updateOtpSettings
+      tags: [otp]
+      summary: Update OTP settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpSettingsUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpSettings"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +964,599 @@ components:
       required:
         - status
 
+    # Auth
+    LoginInput:
+      type: object
+      required: [loginId, password]
+      properties:
+        loginId:
+          type: string
+        password:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [user, token]
+      properties:
+        user:
+          $ref: "#/components/schemas/AdminUser"
+        token:
+          type: string
+
+    # Admin Users
+    AdminUser:
+      type: object
+      required: [id, loginId, name, role, permission, isActive, useOtp, createdAt]
+      properties:
+        id:
+          type: integer
+        loginId:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          description: "superadmin | hq | distributor | agency | store"
+        permission:
+          type: string
+          description: "readonly | admin | finance"
+        isActive:
+          type: boolean
+        useOtp:
+          type: boolean
+        parentId:
+          type: ["integer", "null"]
+        parentName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    AdminUserList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminUser"
+        total:
+          type: integer
+
+    AdminUserInput:
+      type: object
+      required: [loginId, password, name, role, permission]
+      properties:
+        loginId:
+          type: string
+        password:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+        permission:
+          type: string
+        parentId:
+          type: ["integer", "null"]
+        useOtp:
+          type: boolean
+
+    AdminUserUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        isActive:
+          type: boolean
+        permission:
+          type: string
+        useOtp:
+          type: boolean
+
+    ResetPasswordInput:
+      type: object
+      required: [newPassword]
+      properties:
+        newPassword:
+          type: string
+
+    UserPermissionUpdate:
+      type: object
+      required: [permission]
+      properties:
+        permission:
+          type: string
+
+    # Members
+    Member:
+      type: object
+      required: [id, loginId, name, phone, email, storeCode, storeName, isActive, createdAt]
+      properties:
+        id:
+          type: integer
+        loginId:
+          type: string
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        storeCode:
+          type: string
+        storeName:
+          type: string
+        isActive:
+          type: boolean
+        virtualAccountNumber:
+          type: ["string", "null"]
+        virtualAccountBank:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    MemberList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Member"
+        total:
+          type: integer
+
+    MemberInput:
+      type: object
+      required: [loginId, password, name, phone, email, storeCode]
+      properties:
+        loginId:
+          type: string
+        password:
+          type: string
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        storeCode:
+          type: string
+
+    MemberUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+        isActive:
+          type: boolean
+
+    StatusUpdate:
+      type: object
+      required: [isActive]
+      properties:
+        isActive:
+          type: boolean
+
+    # Buyers
+    Buyer:
+      type: object
+      required: [id, name, loginId, phone, birthdate, isVerified, virtualAccountNumber, virtualAccountBank, virtualAccountStatus, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        loginId:
+          type: string
+        phone:
+          type: string
+        birthdate:
+          type: string
+        isVerified:
+          type: boolean
+        virtualAccountNumber:
+          type: string
+        virtualAccountBank:
+          type: string
+        virtualAccountStatus:
+          type: string
+          description: "active | revoked"
+        withdrawalAccount:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    BuyerList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Buyer"
+        total:
+          type: integer
+
+    BuyerInput:
+      type: object
+      required: [name, loginId, password, phone, birthdate]
+      properties:
+        name:
+          type: string
+        loginId:
+          type: string
+        password:
+          type: string
+        phone:
+          type: string
+        birthdate:
+          type: string
+
+    RegisterLink:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+
+    # Virtual Accounts
+    VirtualAccount:
+      type: object
+      required: [id, accountNumber, bankName, status, memberId, memberName, createdAt]
+      properties:
+        id:
+          type: integer
+        accountNumber:
+          type: string
+        bankName:
+          type: string
+        status:
+          type: string
+          description: "active | revoked"
+        memberId:
+          type: integer
+        memberName:
+          type: string
+        balance:
+          type: number
+        createdAt:
+          type: string
+
+    VirtualAccountList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VirtualAccount"
+        total:
+          type: integer
+
+    # Withdrawals
+    Withdrawal:
+      type: object
+      required: [id, trackingNumber, amount, fee, totalAmount, approvalStatus, withdrawalStatus, accountNumber, accountBank, accountHolder, createdAt]
+      properties:
+        id:
+          type: integer
+        trackingNumber:
+          type: string
+        amount:
+          type: number
+        fee:
+          type: number
+        totalAmount:
+          type: number
+        approvalStatus:
+          type: string
+          description: "pending | approved | rejected"
+        withdrawalStatus:
+          type: string
+          description: "unpaid | paid"
+        accountNumber:
+          type: string
+        accountBank:
+          type: string
+        accountHolder:
+          type: string
+        rejectReason:
+          type: ["string", "null"]
+        memberName:
+          type: ["string", "null"]
+        storeName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    WithdrawalList:
+      type: object
+      required: [items, total, totalAmount, totalFee]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Withdrawal"
+        total:
+          type: integer
+        totalAmount:
+          type: number
+        totalFee:
+          type: number
+
+    WithdrawalInput:
+      type: object
+      required: [amount, accountNumber, accountBank, accountHolder]
+      properties:
+        amount:
+          type: number
+        accountNumber:
+          type: string
+        accountBank:
+          type: string
+        accountHolder:
+          type: string
+
+    RejectInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+
+    WithdrawalSummary:
+      type: object
+      required: [pendingCount, pendingAmount, approvedCount, approvedAmount, todayWithdrawn]
+      properties:
+        pendingCount:
+          type: integer
+        pendingAmount:
+          type: number
+        approvedCount:
+          type: integer
+        approvedAmount:
+          type: number
+        todayWithdrawn:
+          type: number
+
+    # Transactions
+    Transaction:
+      type: object
+      required: [id, type, originalAmount, amount, fee, status, fromAccount, toAccount, trackingNumber, pgTransactionId, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          description: "deposit | withdrawal"
+        originalAmount:
+          type: number
+        amount:
+          type: number
+        fee:
+          type: number
+        status:
+          type: string
+          description: "success | failed | pending"
+        fromAccount:
+          type: string
+        toAccount:
+          type: string
+        trackingNumber:
+          type: string
+        pgTransactionId:
+          type: string
+        memberName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    TransactionList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Transaction"
+        total:
+          type: integer
+
+    # Balances
+    BalanceRecord:
+      type: object
+      required: [id, direction, category, amount, balance, createdAt]
+      properties:
+        id:
+          type: integer
+        direction:
+          type: string
+          description: "in | out"
+        category:
+          type: string
+          description: "withdrawal | payment"
+        amount:
+          type: number
+        balance:
+          type: number
+        description:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    BalanceRecordList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/BalanceRecord"
+        total:
+          type: integer
+
+    BalanceSummary:
+      type: object
+      required: [balance, pendingAmount]
+      properties:
+        balance:
+          type: number
+        pendingAmount:
+          type: number
+
+    # Fees
+    FeeConfig:
+      type: object
+      required: [id, userId, userName, role, depositFee, withdrawalFee, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        userName:
+          type: string
+        role:
+          type: string
+        depositFee:
+          type: number
+        withdrawalFee:
+          type: number
+        createdAt:
+          type: string
+
+    FeeConfigInput:
+      type: object
+      required: [userId, depositFee, withdrawalFee]
+      properties:
+        userId:
+          type: integer
+        depositFee:
+          type: number
+        withdrawalFee:
+          type: number
+
+    FeeConfigUpdate:
+      type: object
+      properties:
+        depositFee:
+          type: number
+        withdrawalFee:
+          type: number
+
+    # Statistics
+    DailyStatistic:
+      type: object
+      required: [date, depositCount, depositAmount, withdrawalCount, withdrawalAmount, feeAmount, netAmount]
+      properties:
+        date:
+          type: string
+        depositCount:
+          type: integer
+        depositAmount:
+          type: number
+        withdrawalCount:
+          type: integer
+        withdrawalAmount:
+          type: number
+        feeAmount:
+          type: number
+        netAmount:
+          type: number
+
+    StatisticsOverview:
+      type: object
+      required: [todayDeposit, todayWithdrawal, todayFee, monthDeposit, monthWithdrawal, totalMembers, activeVirtualAccounts, pendingWithdrawals]
+      properties:
+        todayDeposit:
+          type: number
+        todayWithdrawal:
+          type: number
+        todayFee:
+          type: number
+        monthDeposit:
+          type: number
+        monthWithdrawal:
+          type: number
+        totalMembers:
+          type: integer
+        activeVirtualAccounts:
+          type: integer
+        pendingWithdrawals:
+          type: integer
+
+    # Notices
+    Notice:
+      type: object
+      required: [id, title, content, isPinned, createdAt]
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        content:
+          type: string
+        isPinned:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: ["string", "null"]
+
+    NoticeList:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notice"
+        total:
+          type: integer
+
+    NoticeInput:
+      type: object
+      required: [title, content]
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        isPinned:
+          type: boolean
+
+    NoticeUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        isPinned:
+          type: boolean
+
+    # OTP
+    OtpSettings:
+      type: object
+      required: [useOtpForDeposit, useOtpForWithdrawal]
+      properties:
+        useOtpForDeposit:
+          type: boolean
+        useOtpForWithdrawal:
+          type: boolean
+        otpSecret:
+          type: ["string", "null"]
+
+    OtpSettingsUpdate:
+      type: object
+      properties:
+        useOtpForDeposit:
+          type: boolean
+        useOtpForWithdrawal:
+          type: boolean
