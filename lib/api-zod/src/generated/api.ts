@@ -230,7 +230,7 @@ export const CreateMemberBody = zod.object({
   name: zod.string(),
   phone: zod.string(),
   email: zod.string().nullish(),
-  storeCode: zod.string().nullish(),
+  storeCode: zod.string(),
   birthdate: zod.string().nullish(),
 });
 

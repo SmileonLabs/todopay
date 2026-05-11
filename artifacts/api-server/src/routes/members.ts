@@ -81,13 +81,19 @@ router.post("/members", async (req, res) => {
   const parsed = CreateMemberBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const { loginId, password, name, phone, email, storeCode, birthdate } = parsed.data;
+  const [store] = await db.select().from(adminUsersTable)
+    .where(and(eq(adminUsersTable.loginId, storeCode), eq(adminUsersTable.role, "store")));
+  if (!store) { res.status(400).json({ error: "유효하지 않은 매장코드입니다" }); return; }
+  const [existing] = await db.select().from(membersTable).where(eq(membersTable.loginId, loginId));
+  if (existing) { res.status(409).json({ error: "이미 사용중인 아이디입니다" }); return; }
   const [m] = await db.insert(membersTable).values({
     loginId,
     passwordHash: simpleHash(password),
     name,
     phone,
     email: email ?? null,
-    storeCode: storeCode ?? null,
+    storeCode,
+    storeId: store.id,
     birthdate: birthdate ?? null,
     isVerified: true,
   }).returning();

@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, membersTable, virtualAccountsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, membersTable, virtualAccountsTable, adminUsersTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 
 const router = Router();
 
@@ -20,6 +20,15 @@ async function getMemberWithAccount(memberId: number) {
   const [account] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, memberId));
   return { member, account: account ?? null };
 }
+
+router.get("/member/store-check", async (req, res) => {
+  const code = req.query.code as string | undefined;
+  if (!code) { res.status(400).json({ valid: false }); return; }
+  const [store] = await db.select().from(adminUsersTable)
+    .where(and(eq(adminUsersTable.loginId, code), eq(adminUsersTable.role, "store")));
+  if (!store) { res.json({ valid: false }); return; }
+  res.json({ valid: true, storeName: store.name });
+});
 
 router.post("/member/auth/login", async (req, res) => {
   const { loginId, password } = req.body as { loginId?: string; password?: string };

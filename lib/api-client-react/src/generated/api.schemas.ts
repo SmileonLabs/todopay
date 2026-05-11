@@ -106,8 +106,7 @@ export interface MemberInput {
   phone: string;
   /** @nullable */
   email?: string | null;
-  /** @nullable */
-  storeCode?: string | null;
+  storeCode: string;
   /** @nullable */
   birthdate?: string | null;
 }
