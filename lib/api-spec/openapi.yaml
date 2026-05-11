@@ -573,6 +573,14 @@ paths:
           in: query
           schema:
             type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: storeId
+          in: query
+          schema:
+            type: integer
         - name: search
           in: query
           schema:
@@ -592,6 +600,32 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TransactionList"
+
+  /transactions/{id}/confirm:
+    post:
+      operationId: confirmTransaction
+      tags: [transactions]
+      summary: Confirm a pending deposit transaction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Confirmed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  id:
+                    type: integer
+                  status:
+                    type: string
 
   # Balances (충전금액 관리)
   /balances:

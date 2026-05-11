@@ -493,6 +493,8 @@ export const ListTransactionsQueryParams = zod.object({
   startDate: zod.coerce.string().optional(),
   endDate: zod.coerce.string().optional(),
   type: zod.coerce.string().optional(),
+  status: zod.coerce.string().optional(),
+  storeId: zod.coerce.number().optional(),
   search: zod.coerce.string().optional(),
   page: zod.coerce.number().optional(),
   limit: zod.coerce.number().optional(),
@@ -516,6 +518,19 @@ export const ListTransactionsResponse = zod.object({
     }),
   ),
   total: zod.number(),
+});
+
+/**
+ * @summary Confirm a pending deposit transaction
+ */
+export const ConfirmTransactionParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const ConfirmTransactionResponse = zod.object({
+  success: zod.boolean().optional(),
+  id: zod.number().optional(),
+  status: zod.string().optional(),
 });
 
 /**

@@ -363,9 +363,17 @@ export type ListTransactionsParams = {
   startDate?: string;
   endDate?: string;
   type?: string;
+  status?: string;
+  storeId?: number;
   search?: string;
   page?: number;
   limit?: number;
+};
+
+export type ConfirmTransaction200 = {
+  success?: boolean;
+  id?: number;
+  status?: string;
 };
 
 export type ListBalanceRecordsParams = {

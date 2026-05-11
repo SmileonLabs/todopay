@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, membersTable, virtualAccountsTable, adminUsersTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { db, membersTable, virtualAccountsTable, adminUsersTable, transactionsTable } from "@workspace/db";
+import { eq, and, sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -114,6 +114,87 @@ router.get("/member/auth/me", async (req, res) => {
   } catch {
     res.status(401).json({ error: "Unauthorized" });
   }
+});
+
+async function getMemberFromToken(authHeader: string | undefined) {
+  if (!authHeader) return null;
+  try {
+    const decoded = Buffer.from(authHeader.replace("Bearer ", ""), "base64").toString();
+    const parts = decoded.split(":");
+    if (parts[0] !== "m") return null;
+    const memberId = parseInt(parts[1], 10);
+    const [member] = await db.select().from(membersTable).where(eq(membersTable.id, memberId));
+    return member ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function generateId(prefix: string): string {
+  return `${prefix}${Date.now()}${Math.floor(Math.random() * 10000).toString().padStart(4, "0")}`;
+}
+
+router.post("/member/deposit-request", async (req, res) => {
+  const member = await getMemberFromToken(req.headers.authorization);
+  if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { amount, fromBank, fromAccount } = req.body as { amount?: number; fromBank?: string; fromAccount?: string };
+  if (!amount || Number(amount) <= 0) { res.status(400).json({ error: "금액을 올바르게 입력해주세요" }); return; }
+  if (!fromAccount?.trim()) { res.status(400).json({ error: "계좌번호를 입력해주세요" }); return; }
+
+  const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
+  if (!va) { res.status(400).json({ error: "발급된 가상계좌가 없습니다" }); return; }
+  if (va.status === "revoked") { res.status(400).json({ error: "비활성화된 가상계좌입니다" }); return; }
+
+  const fromAccountStr = fromBank ? `${fromBank} ${fromAccount.trim()}` : fromAccount.trim();
+
+  const [tx] = await db.insert(transactionsTable).values({
+    type: "deposit",
+    originalAmount: Number(amount).toFixed(2),
+    amount: Number(amount).toFixed(2),
+    fee: "0",
+    status: "pending",
+    fromAccount: fromAccountStr,
+    toAccount: va.accountNumber,
+    trackingNumber: generateId("DEP"),
+    pgTransactionId: generateId("PG"),
+    memberId: member.id,
+  }).returning();
+
+  res.status(201).json({
+    id: tx.id,
+    trackingNumber: tx.trackingNumber,
+    amount: Number(tx.amount),
+    status: tx.status,
+    fromAccount: tx.fromAccount,
+    toAccount: tx.toAccount,
+    createdAt: tx.createdAt.toISOString(),
+  });
+});
+
+router.get("/member/deposits", async (req, res) => {
+  const member = await getMemberFromToken(req.headers.authorization);
+  if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const deposits = await db.select().from(transactionsTable)
+    .where(and(eq(transactionsTable.memberId, member.id), eq(transactionsTable.type, "deposit")))
+    .orderBy(sql`${transactionsTable.createdAt} desc`)
+    .limit(30);
+
+  const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
+
+  res.json({
+    balance: va ? Number(va.balance) : 0,
+    items: deposits.map(t => ({
+      id: t.id,
+      amount: Number(t.amount),
+      status: t.status,
+      trackingNumber: t.trackingNumber,
+      fromAccount: t.fromAccount,
+      toAccount: t.toAccount,
+      createdAt: t.createdAt.toISOString(),
+    })),
+  });
 });
 
 export default router;

@@ -24,6 +24,7 @@ import type {
   AuthResponse,
   BalanceRecordList,
   BalanceSummary,
+  ConfirmTransaction200,
   DailyStatistic,
   FeeConfig,
   FeeConfigInput,
@@ -2285,6 +2286,90 @@ export function useListTransactions<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Confirm a pending deposit transaction
+ */
+export const getConfirmTransactionUrl = (id: number) => {
+  return `/api/transactions/${id}/confirm`;
+};
+
+export const confirmTransaction = async (
+  id: number,
+  options?: RequestInit,
+): Promise<ConfirmTransaction200> => {
+  return customFetch<ConfirmTransaction200>(getConfirmTransactionUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getConfirmTransactionMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmTransaction>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof confirmTransaction>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["confirmTransaction"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof confirmTransaction>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return confirmTransaction(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ConfirmTransactionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof confirmTransaction>>
+>;
+
+export type ConfirmTransactionMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Confirm a pending deposit transaction
+ */
+export const useConfirmTransaction = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof confirmTransaction>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof confirmTransaction>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getConfirmTransactionMutationOptions(options));
+};
 
 /**
  * @summary List balance records

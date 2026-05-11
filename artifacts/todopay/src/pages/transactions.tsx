@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { useListTransactions } from "@workspace/api-client-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { useListTransactions, useConfirmTransaction } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/auth-context";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +12,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { formatMoney, formatDate } from "@/lib/format";
-import { Loader2, Search } from "lucide-react";
+import { Loader2, Search, CheckCircle2, Clock } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 const TYPE_COLORS: Record<string, string> = {
   deposit: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -22,6 +25,96 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-500/20 text-red-400 border-red-500/30",
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
 };
+
+function PendingDeposits() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+
+  const params: Record<string, unknown> = { type: "deposit", status: "pending", limit: 50 };
+  if (user?.role === "store") params.storeId = user.id;
+
+  const { data, isLoading, refetch } = useListTransactions(params as Parameters<typeof useListTransactions>[0]);
+  const confirmMutation = useConfirmTransaction();
+
+  const handleConfirm = async (id: number) => {
+    setConfirmingId(id);
+    try {
+      await confirmMutation.mutateAsync({ id });
+      toast({ title: "입금 확인 처리 완료" });
+      void refetch();
+      void queryClient.invalidateQueries();
+    } catch {
+      toast({ title: "처리 실패", variant: "destructive" });
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+
+  const items = data?.items ?? [];
+
+  return (
+    <Card className="bg-card/50 border-yellow-500/20">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold flex items-center gap-2">
+          <Clock className="h-4 w-4 text-yellow-400" />
+          입금 대기 목록
+          {items.length > 0 && (
+            <Badge variant="outline" className="ml-1 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
+              {items.length}건
+            </Badge>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-0">
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : items.length === 0 ? (
+          <div className="text-center py-8 text-sm text-muted-foreground">대기 중인 입금 신청이 없습니다</div>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="border-border/50 hover:bg-transparent">
+                <TableHead>추적번호</TableHead>
+                <TableHead>회원명</TableHead>
+                <TableHead>출금계좌</TableHead>
+                <TableHead>입금계좌</TableHead>
+                <TableHead className="text-right">금액</TableHead>
+                <TableHead>신청일시</TableHead>
+                <TableHead className="text-center">처리</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((t) => (
+                <TableRow key={t.id} className="border-border/30">
+                  <TableCell className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</TableCell>
+                  <TableCell>{t.memberName ?? "-"}</TableCell>
+                  <TableCell className="font-mono text-xs">{t.fromAccount}</TableCell>
+                  <TableCell className="font-mono text-xs">{t.toAccount}</TableCell>
+                  <TableCell className="text-right font-bold text-primary">{formatMoney(t.amount)}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(t.createdAt)}</TableCell>
+                  <TableCell className="text-center">
+                    <Button
+                      size="sm"
+                      onClick={() => void handleConfirm(t.id)}
+                      disabled={confirmingId === t.id}
+                      className="bg-green-600 hover:bg-green-700 text-white h-7 text-xs px-3"
+                    >
+                      {confirmingId === t.id
+                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />확인 처리</>}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Transactions() {
   const [search, setSearch] = useState("");
@@ -43,11 +136,13 @@ export default function Transactions() {
     <div className="space-y-6">
       <h1 className="text-3xl font-bold tracking-tight">입출금 내역</h1>
 
+      <PendingDeposits />
+
       <Card className="bg-card/50 border-border/50">
         <CardContent className="pt-4 flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="추적번호 / 회원명 검색" className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+            <Input placeholder="추적번호 / 계좌 검색" className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <Select value={type} onValueChange={(v) => { setType(v); setPage(1); }}>
             <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
@@ -72,7 +167,6 @@ export default function Transactions() {
               <TableHeader>
                 <TableRow className="border-border/50 hover:bg-transparent">
                   <TableHead>추적번호</TableHead>
-                  <TableHead>PG거래ID</TableHead>
                   <TableHead>유형</TableHead>
                   <TableHead>회원명</TableHead>
                   <TableHead>출금계좌</TableHead>
@@ -88,7 +182,6 @@ export default function Transactions() {
                 {data?.items.map((t) => (
                   <TableRow key={t.id} className="border-border/30">
                     <TableCell className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">{t.pgTransactionId}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={`text-xs ${TYPE_COLORS[t.type] ?? ""}`}>
                         {t.type === "deposit" ? "입금" : "출금"}
@@ -109,7 +202,7 @@ export default function Transactions() {
                   </TableRow>
                 ))}
                 {data?.items.length === 0 && (
-                  <TableRow><TableCell colSpan={11} className="text-center py-10 text-muted-foreground">거래 내역이 없습니다</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={10} className="text-center py-10 text-muted-foreground">거래 내역이 없습니다</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>

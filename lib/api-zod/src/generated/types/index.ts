@@ -14,6 +14,7 @@ export * from "./authResponse";
 export * from "./balanceRecord";
 export * from "./balanceRecordList";
 export * from "./balanceSummary";
+export * from "./confirmTransaction200";
 export * from "./dailyStatistic";
 export * from "./feeConfig";
 export * from "./feeConfigInput";
