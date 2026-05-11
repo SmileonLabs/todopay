@@ -94,9 +94,12 @@ export default function BuyerRegister() {
 
   const handleCopy = () => {
     if (!result) return;
-    void navigator.clipboard.writeText(result.virtualAccountNumber);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard.writeText(result.virtualAccountNumber).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      setCopied(false);
+    });
   };
 
   const field = <K extends keyof typeof form>(key: K, value: string) =>

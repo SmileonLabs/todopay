@@ -119,9 +119,12 @@ export default function Members() {
   const handleCopyLink = () => {
     const url = linkData?.url ?? "";
     if (!url) return;
-    void navigator.clipboard.writeText(url);
-    setLinkCopied(true);
-    setTimeout(() => setLinkCopied(false), 2000);
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    }).catch(() => {
+      toast({ title: "클립보드 복사 실패", description: "링크를 직접 복사해 주세요.", variant: "destructive" });
+    });
   };
 
   return (
