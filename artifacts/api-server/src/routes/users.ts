@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, adminUsersTable } from "@workspace/db";
-import { eq, ilike, and, or, sql } from "drizzle-orm";
+import { eq, ilike, and, or, inArray, sql } from "drizzle-orm";
 import {
   ListUsersQueryParams,
   CreateUserBody,
@@ -65,7 +65,7 @@ router.get("/users", async (req, res) => {
 
   const parentIds = [...new Set(users.map(u => u.parentId).filter(Boolean))] as number[];
   const parents = parentIds.length > 0
-    ? await db.select().from(adminUsersTable).where(sql`id = ANY(${parentIds})`)
+    ? await db.select().from(adminUsersTable).where(inArray(adminUsersTable.id, parentIds))
     : [];
   const parentMap = new Map(parents.map(p => [p.id, p.name]));
 

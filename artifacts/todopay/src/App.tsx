@@ -8,6 +8,16 @@ import { Layout } from "@/components/layout";
 
 import Login from "./pages/login";
 import Dashboard from "./pages/dashboard";
+import Withdrawals from "./pages/withdrawals";
+import Transactions from "./pages/transactions";
+import Balances from "./pages/balances";
+import Buyers from "./pages/buyers";
+import Members from "./pages/members";
+import Users from "./pages/users";
+import Fees from "./pages/fees";
+import Statistics from "./pages/statistics";
+import Notices from "./pages/notices";
+import Otp from "./pages/otp";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,36 +46,35 @@ function Router() {
       <Route path="/dashboard">
         <Layout><Dashboard /></Layout>
       </Route>
-
       <Route path="/withdrawals">
-        <Layout><div className="p-4 text-muted-foreground">출금 관리 페이지 준비 중</div></Layout>
+        <Layout><Withdrawals /></Layout>
       </Route>
       <Route path="/transactions">
-        <Layout><div className="p-4 text-muted-foreground">입출금 내역 페이지 준비 중</div></Layout>
+        <Layout><Transactions /></Layout>
       </Route>
       <Route path="/balances">
-        <Layout><div className="p-4 text-muted-foreground">충전금액 관리 페이지 준비 중</div></Layout>
+        <Layout><Balances /></Layout>
       </Route>
       <Route path="/buyers">
-        <Layout><div className="p-4 text-muted-foreground">구매자 관리 페이지 준비 중</div></Layout>
+        <Layout><Buyers /></Layout>
       </Route>
       <Route path="/members">
-        <Layout><div className="p-4 text-muted-foreground">회원 관리 페이지 준비 중</div></Layout>
+        <Layout><Members /></Layout>
       </Route>
       <Route path="/users">
-        <Layout><div className="p-4 text-muted-foreground">유저 관리 페이지 준비 중</div></Layout>
+        <Layout><Users /></Layout>
       </Route>
       <Route path="/fees">
-        <Layout><div className="p-4 text-muted-foreground">수수료 설정 페이지 준비 중</div></Layout>
+        <Layout><Fees /></Layout>
       </Route>
       <Route path="/statistics">
-        <Layout><div className="p-4 text-muted-foreground">일자별 통계 페이지 준비 중</div></Layout>
+        <Layout><Statistics /></Layout>
       </Route>
       <Route path="/notices">
-        <Layout><div className="p-4 text-muted-foreground">공지사항 페이지 준비 중</div></Layout>
+        <Layout><Notices /></Layout>
       </Route>
       <Route path="/otp">
-        <Layout><div className="p-4 text-muted-foreground">OTP 설정 페이지 준비 중</div></Layout>
+        <Layout><Otp /></Layout>
       </Route>
 
       <Route component={NotFound} />
