@@ -19,6 +19,7 @@ import Notices from "./pages/notices";
 import Otp from "./pages/otp";
 import Profile from "./pages/profile";
 import MemberRegister from "./pages/member-register";
+import MemberLogin from "./pages/member-login";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -40,6 +41,7 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/register/member" component={MemberRegister} />
+      <Route path="/member/login" component={MemberLogin} />
 
       <Route path="/">
         <RedirectToDashboard />
