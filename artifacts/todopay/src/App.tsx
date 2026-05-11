@@ -19,6 +19,7 @@ import Statistics from "./pages/statistics";
 import Notices from "./pages/notices";
 import Otp from "./pages/otp";
 import Profile from "./pages/profile";
+import BuyerRegister from "./pages/buyer-register";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -39,6 +40,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/register/buyer" component={BuyerRegister} />
 
       <Route path="/">
         <RedirectToDashboard />
