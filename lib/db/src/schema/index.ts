@@ -1,7 +1,6 @@
 export * from "./users";
 export * from "./members";
 export * from "./virtual_accounts";
-export * from "./buyers";
 export * from "./withdrawals";
 export * from "./transactions";
 export * from "./balances";

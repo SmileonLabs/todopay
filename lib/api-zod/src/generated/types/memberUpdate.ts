@@ -9,6 +9,9 @@
 export interface MemberUpdate {
   name?: string;
   phone?: string;
-  email?: string;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  birthdate?: string | null;
   isActive?: boolean;
 }

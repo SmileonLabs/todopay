@@ -11,6 +11,10 @@ export interface MemberInput {
   password: string;
   name: string;
   phone: string;
-  email: string;
-  storeCode: string;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  storeCode?: string | null;
+  /** @nullable */
+  birthdate?: string | null;
 }

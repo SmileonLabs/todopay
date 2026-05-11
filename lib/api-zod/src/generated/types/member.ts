@@ -11,13 +11,24 @@ export interface Member {
   loginId: string;
   name: string;
   phone: string;
-  email: string;
-  storeCode: string;
-  storeName: string;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  storeCode?: string | null;
+  /** @nullable */
+  storeName?: string | null;
+  /** @nullable */
+  birthdate?: string | null;
+  isVerified: boolean;
   isActive: boolean;
   /** @nullable */
   virtualAccountNumber?: string | null;
   /** @nullable */
   virtualAccountBank?: string | null;
+  /**
+   * active | revoked
+   * @nullable
+   */
+  virtualAccountStatus?: string | null;
   createdAt: string;
 }

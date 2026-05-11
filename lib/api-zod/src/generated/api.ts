@@ -206,12 +206,15 @@ export const ListMembersResponse = zod.object({
       loginId: zod.string(),
       name: zod.string(),
       phone: zod.string(),
-      email: zod.string(),
-      storeCode: zod.string(),
-      storeName: zod.string(),
+      email: zod.string().nullish(),
+      storeCode: zod.string().nullish(),
+      storeName: zod.string().nullish(),
+      birthdate: zod.string().nullish(),
+      isVerified: zod.boolean(),
       isActive: zod.boolean(),
       virtualAccountNumber: zod.string().nullish(),
       virtualAccountBank: zod.string().nullish(),
+      virtualAccountStatus: zod.string().nullish().describe("active | revoked"),
       createdAt: zod.string(),
     }),
   ),
@@ -226,8 +229,9 @@ export const CreateMemberBody = zod.object({
   password: zod.string(),
   name: zod.string(),
   phone: zod.string(),
-  email: zod.string(),
-  storeCode: zod.string(),
+  email: zod.string().nullish(),
+  storeCode: zod.string().nullish(),
+  birthdate: zod.string().nullish(),
 });
 
 /**
@@ -242,12 +246,15 @@ export const GetMemberResponse = zod.object({
   loginId: zod.string(),
   name: zod.string(),
   phone: zod.string(),
-  email: zod.string(),
-  storeCode: zod.string(),
-  storeName: zod.string(),
+  email: zod.string().nullish(),
+  storeCode: zod.string().nullish(),
+  storeName: zod.string().nullish(),
+  birthdate: zod.string().nullish(),
+  isVerified: zod.boolean(),
   isActive: zod.boolean(),
   virtualAccountNumber: zod.string().nullish(),
   virtualAccountBank: zod.string().nullish(),
+  virtualAccountStatus: zod.string().nullish().describe("active | revoked"),
   createdAt: zod.string(),
 });
 
@@ -261,7 +268,8 @@ export const UpdateMemberParams = zod.object({
 export const UpdateMemberBody = zod.object({
   name: zod.string().optional(),
   phone: zod.string().optional(),
-  email: zod.string().optional(),
+  email: zod.string().nullish(),
+  birthdate: zod.string().nullish(),
   isActive: zod.boolean().optional(),
 });
 
@@ -270,12 +278,15 @@ export const UpdateMemberResponse = zod.object({
   loginId: zod.string(),
   name: zod.string(),
   phone: zod.string(),
-  email: zod.string(),
-  storeCode: zod.string(),
-  storeName: zod.string(),
+  email: zod.string().nullish(),
+  storeCode: zod.string().nullish(),
+  storeName: zod.string().nullish(),
+  birthdate: zod.string().nullish(),
+  isVerified: zod.boolean(),
   isActive: zod.boolean(),
   virtualAccountNumber: zod.string().nullish(),
   virtualAccountBank: zod.string().nullish(),
+  virtualAccountStatus: zod.string().nullish().describe("active | revoked"),
   createdAt: zod.string(),
 });
 
@@ -291,102 +302,33 @@ export const UpdateMemberStatusBody = zod.object({
 });
 
 /**
- * @summary List buyers
+ * @summary Reissue virtual account for member
  */
-export const ListBuyersQueryParams = zod.object({
-  search: zod.coerce.string().optional(),
-  startDate: zod.coerce.string().optional(),
-  endDate: zod.coerce.string().optional(),
-  page: zod.coerce.number().optional(),
-  limit: zod.coerce.number().optional(),
-});
-
-export const ListBuyersResponse = zod.object({
-  items: zod.array(
-    zod.object({
-      id: zod.number(),
-      name: zod.string(),
-      loginId: zod.string(),
-      phone: zod.string(),
-      birthdate: zod.string(),
-      isVerified: zod.boolean(),
-      virtualAccountNumber: zod.string(),
-      virtualAccountBank: zod.string(),
-      virtualAccountStatus: zod.string().describe("active | revoked"),
-      withdrawalAccount: zod.string().nullish(),
-      createdAt: zod.string(),
-      updatedAt: zod.string().optional(),
-    }),
-  ),
-  total: zod.number(),
-});
-
-/**
- * @summary Register buyer
- */
-export const CreateBuyerBody = zod.object({
-  name: zod.string(),
-  loginId: zod.string(),
-  password: zod.string(),
-  phone: zod.string(),
-  birthdate: zod.string(),
-});
-
-/**
- * @summary Get buyer
- */
-export const GetBuyerParams = zod.object({
+export const ReissueMemberVirtualAccountParams = zod.object({
   id: zod.coerce.number(),
 });
 
-export const GetBuyerResponse = zod.object({
+export const ReissueMemberVirtualAccountResponse = zod.object({
   id: zod.number(),
-  name: zod.string(),
   loginId: zod.string(),
-  phone: zod.string(),
-  birthdate: zod.string(),
-  isVerified: zod.boolean(),
-  virtualAccountNumber: zod.string(),
-  virtualAccountBank: zod.string(),
-  virtualAccountStatus: zod.string().describe("active | revoked"),
-  withdrawalAccount: zod.string().nullish(),
-  createdAt: zod.string(),
-  updatedAt: zod.string().optional(),
-});
-
-/**
- * @summary Delete buyer (revoke virtual account)
- */
-export const DeleteBuyerParams = zod.object({
-  id: zod.coerce.number(),
-});
-
-/**
- * @summary Reissue virtual account for buyer
- */
-export const ReissueBuyerVirtualAccountParams = zod.object({
-  id: zod.coerce.number(),
-});
-
-export const ReissueBuyerVirtualAccountResponse = zod.object({
-  id: zod.number(),
   name: zod.string(),
-  loginId: zod.string(),
   phone: zod.string(),
-  birthdate: zod.string(),
+  email: zod.string().nullish(),
+  storeCode: zod.string().nullish(),
+  storeName: zod.string().nullish(),
+  birthdate: zod.string().nullish(),
   isVerified: zod.boolean(),
-  virtualAccountNumber: zod.string(),
-  virtualAccountBank: zod.string(),
-  virtualAccountStatus: zod.string().describe("active | revoked"),
-  withdrawalAccount: zod.string().nullish(),
+  isActive: zod.boolean(),
+  virtualAccountNumber: zod.string().nullish(),
+  virtualAccountBank: zod.string().nullish(),
+  virtualAccountStatus: zod.string().nullish().describe("active | revoked"),
   createdAt: zod.string(),
-  updatedAt: zod.string().optional(),
 });
 
 /**
- * @summary Get buyer registration link
+ * @summary Get member registration link
  */
-export const GetBuyerRegisterLinkResponse = zod.object({
+export const GetMemberRegisterLinkResponse = zod.object({
   url: zod.string(),
 });
 

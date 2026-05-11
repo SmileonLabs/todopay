@@ -138,7 +138,7 @@ router.post("/users/:id/reset-password", async (req, res) => {
 
 router.patch("/users/:id/permission", async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const parsed = UserPermissionBody.safeParse(req.body);
+  const parsed = UpdateUserPermissionBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const [user] = await db.update(adminUsersTable)
     .set({ permission: parsed.data.permission })

@@ -16,8 +16,6 @@ tags:
     description: User management
   - name: members
     description: Member management
-  - name: buyers
-    description: Buyer management
   - name: virtual-accounts
     description: Virtual account management
   - name: withdrawals
@@ -357,95 +355,11 @@ paths:
         "200":
           description: Status updated
 
-  # Buyers (구매자)
-  /buyers:
-    get:
-      operationId: listBuyers
-      tags: [buyers]
-      summary: List buyers
-      parameters:
-        - name: search
-          in: query
-          schema:
-            type: string
-        - name: startDate
-          in: query
-          schema:
-            type: string
-        - name: endDate
-          in: query
-          schema:
-            type: string
-        - name: page
-          in: query
-          schema:
-            type: integer
-        - name: limit
-          in: query
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: List of buyers
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/BuyerList"
+  /members/{id}/virtual-account:
     post:
-      operationId: createBuyer
-      tags: [buyers]
-      summary: Register buyer
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/BuyerInput"
-      responses:
-        "201":
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Buyer"
-
-  /buyers/{id}:
-    get:
-      operationId: getBuyer
-      tags: [buyers]
-      summary: Get buyer
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "200":
-          description: Buyer
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Buyer"
-    delete:
-      operationId: deleteBuyer
-      tags: [buyers]
-      summary: Delete buyer (revoke virtual account)
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: integer
-      responses:
-        "204":
-          description: Deleted
-
-  /buyers/{id}/virtual-account:
-    post:
-      operationId: reissueBuyerVirtualAccount
-      tags: [buyers]
-      summary: Reissue virtual account for buyer
+      operationId: reissueMemberVirtualAccount
+      tags: [members]
+      summary: Reissue virtual account for member
       parameters:
         - name: id
           in: path
@@ -458,13 +372,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Buyer"
+                $ref: "#/components/schemas/Member"
 
-  /buyers/register-link:
+  /members/register-link:
     get:
-      operationId: getBuyerRegisterLink
-      tags: [buyers]
-      summary: Get buyer registration link
+      operationId: getMemberRegisterLink
+      tags: [members]
+      summary: Get member registration link
       responses:
         "200":
           description: Registration link
@@ -1070,7 +984,7 @@ components:
     # Members
     Member:
       type: object
-      required: [id, loginId, name, phone, email, storeCode, storeName, isActive, createdAt]
+      required: [id, loginId, name, phone, isActive, isVerified, createdAt]
       properties:
         id:
           type: integer
@@ -1081,17 +995,24 @@ components:
         phone:
           type: string
         email:
-          type: string
+          type: ["string", "null"]
         storeCode:
-          type: string
+          type: ["string", "null"]
         storeName:
-          type: string
+          type: ["string", "null"]
+        birthdate:
+          type: ["string", "null"]
+        isVerified:
+          type: boolean
         isActive:
           type: boolean
         virtualAccountNumber:
           type: ["string", "null"]
         virtualAccountBank:
           type: ["string", "null"]
+        virtualAccountStatus:
+          type: ["string", "null"]
+          description: "active | revoked"
         createdAt:
           type: string
 
@@ -1108,7 +1029,7 @@ components:
 
     MemberInput:
       type: object
-      required: [loginId, password, name, phone, email, storeCode]
+      required: [loginId, password, name, phone]
       properties:
         loginId:
           type: string
@@ -1119,9 +1040,11 @@ components:
         phone:
           type: string
         email:
-          type: string
+          type: ["string", "null"]
         storeCode:
-          type: string
+          type: ["string", "null"]
+        birthdate:
+          type: ["string", "null"]
 
     MemberUpdate:
       type: object
@@ -1131,7 +1054,9 @@ components:
         phone:
           type: string
         email:
-          type: string
+          type: ["string", "null"]
+        birthdate:
+          type: ["string", "null"]
         isActive:
           type: boolean
 
@@ -1141,63 +1066,6 @@ components:
       properties:
         isActive:
           type: boolean
-
-    # Buyers
-    Buyer:
-      type: object
-      required: [id, name, loginId, phone, birthdate, isVerified, virtualAccountNumber, virtualAccountBank, virtualAccountStatus, createdAt]
-      properties:
-        id:
-          type: integer
-        name:
-          type: string
-        loginId:
-          type: string
-        phone:
-          type: string
-        birthdate:
-          type: string
-        isVerified:
-          type: boolean
-        virtualAccountNumber:
-          type: string
-        virtualAccountBank:
-          type: string
-        virtualAccountStatus:
-          type: string
-          description: "active | revoked"
-        withdrawalAccount:
-          type: ["string", "null"]
-        createdAt:
-          type: string
-        updatedAt:
-          type: string
-
-    BuyerList:
-      type: object
-      required: [items, total]
-      properties:
-        items:
-          type: array
-          items:
-            $ref: "#/components/schemas/Buyer"
-        total:
-          type: integer
-
-    BuyerInput:
-      type: object
-      required: [name, loginId, password, phone, birthdate]
-      properties:
-        name:
-          type: string
-        loginId:
-          type: string
-        password:
-          type: string
-        phone:
-          type: string
-        birthdate:
-          type: string
 
     RegisterLink:
       type: object

@@ -3,6 +3,8 @@ import {
   useListMembers,
   useCreateMember,
   useUpdateMemberStatus,
+  useReissueMemberVirtualAccount,
+  useGetMemberRegisterLink,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,11 +17,26 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/format";
-import { Loader2, Search, Plus, CreditCard } from "lucide-react";
+import { Loader2, Search, Plus, CreditCard, RefreshCw, Trash2, Link, Copy, CopyCheck } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+
+const BASE_URL = import.meta.env.BASE_URL ?? "/";
+
+async function deleteMember(id: number): Promise<void> {
+  const token = localStorage.getItem("todopay_token") ?? "";
+  const res = await fetch(`${BASE_URL}api/members/${id}`.replace(/\/+/g, "/").replace(":/", "://"), {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 204) throw new Error("삭제 실패");
+}
 
 export default function Members() {
   const { toast } = useToast();
@@ -28,7 +45,13 @@ export default function Members() {
   const [storeCode, setStoreCode] = useState("");
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
-  const [form, setForm] = useState({ loginId: "", password: "", name: "", phone: "", email: "", storeCode: "" });
+  const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+  const [form, setForm] = useState({
+    loginId: "", password: "", name: "", phone: "",
+    email: "", storeCode: "", birthdate: "",
+  });
 
   const { data, isLoading } = useListMembers({
     search: search || undefined,
@@ -38,15 +61,26 @@ export default function Members() {
   });
   const create = useCreateMember();
   const updateStatus = useUpdateMemberStatus();
+  const reissue = useReissueMemberVirtualAccount();
+  const { data: linkData } = useGetMemberRegisterLink();
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ["/api/members"] });
 
   const handleCreate = () => {
-    create.mutate({ data: form }, {
+    const payload: Record<string, string | null> = {
+      loginId: form.loginId,
+      password: form.password,
+      name: form.name,
+      phone: form.phone,
+      email: form.email || null,
+      storeCode: form.storeCode || null,
+      birthdate: form.birthdate || null,
+    };
+    create.mutate({ data: payload as unknown as Parameters<typeof create.mutate>[0]["data"] }, {
       onSuccess: () => {
         toast({ title: "회원 등록 완료" });
         setCreateOpen(false);
-        setForm({ loginId: "", password: "", name: "", phone: "", email: "", storeCode: "" });
+        setForm({ loginId: "", password: "", name: "", phone: "", email: "", storeCode: "", birthdate: "" });
         invalidate();
       },
       onError: () => toast({ title: "등록 실패", variant: "destructive" }),
@@ -60,65 +94,106 @@ export default function Members() {
     });
   };
 
+  const handleReissue = (id: number) => {
+    reissue.mutate({ id }, {
+      onSuccess: () => { toast({ title: "가상계좌 재발급 완료" }); invalidate(); },
+      onError: () => toast({ title: "재발급 실패", variant: "destructive" }),
+    });
+  };
+
+  const handleDelete = async () => {
+    if (deleteId == null) return;
+    setDeleteLoading(true);
+    try {
+      await deleteMember(deleteId);
+      toast({ title: "회원 삭제 완료" });
+      invalidate();
+    } catch {
+      toast({ title: "삭제 실패", variant: "destructive" });
+    } finally {
+      setDeleteLoading(false);
+      setDeleteId(null);
+    }
+  };
+
+  const handleCopyLink = () => {
+    const url = linkData?.url ?? "";
+    if (!url) return;
+    void navigator.clipboard.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-3xl font-bold tracking-tight">회원 관리</h1>
-        <Button onClick={() => setCreateOpen(true)} className="bg-primary text-black hover:bg-primary/90">
-          <Plus className="h-4 w-4 mr-2" />회원 등록
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleCopyLink} className="gap-2 text-xs">
+            {linkCopied ? <CopyCheck className="h-4 w-4 text-green-400" /> : <Link className="h-4 w-4" />}
+            가입 링크 복사
+          </Button>
+          <Button onClick={() => setCreateOpen(true)} className="bg-primary text-black hover:bg-primary/90">
+            <Plus className="h-4 w-4 mr-2" />회원 등록
+          </Button>
+        </div>
       </div>
 
       <Card className="bg-card/50 border-border/50">
         <CardContent className="pt-4 flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="이름 / 아이디 / 전화번호 검색" className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+            <Input placeholder="이름 / 아이디 / 전화번호 검색" className="pl-9" value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
           </div>
-          <Input placeholder="매장 코드" className="w-36" value={storeCode} onChange={(e) => { setStoreCode(e.target.value); setPage(1); }} />
+          <Input placeholder="매장 코드" className="w-36" value={storeCode}
+            onChange={(e) => { setStoreCode(e.target.value); setPage(1); }} />
         </CardContent>
       </Card>
 
       <Card className="bg-card/50 border-border/50">
-        <CardContent className="p-0">
+        <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
           ) : (
             <Table>
               <TableHeader>
                 <TableRow className="border-border/50 hover:bg-transparent">
-                  <TableHead>아이디</TableHead>
-                  <TableHead>이름</TableHead>
-                  <TableHead>전화번호</TableHead>
-                  <TableHead>이메일</TableHead>
-                  <TableHead>매장</TableHead>
-                  <TableHead>가상계좌</TableHead>
-                  <TableHead>상태</TableHead>
-                  <TableHead>가입일</TableHead>
+                  <TableHead className="whitespace-nowrap">아이디</TableHead>
+                  <TableHead className="whitespace-nowrap">이름</TableHead>
+                  <TableHead className="whitespace-nowrap">전화번호</TableHead>
+                  <TableHead className="whitespace-nowrap">생년월일</TableHead>
+                  <TableHead className="whitespace-nowrap">이메일</TableHead>
+                  <TableHead className="whitespace-nowrap">매장</TableHead>
+                  <TableHead className="whitespace-nowrap">가상계좌 (은행 / 번호)</TableHead>
+                  <TableHead className="whitespace-nowrap">상태</TableHead>
+                  <TableHead className="whitespace-nowrap">가입일</TableHead>
+                  <TableHead className="whitespace-nowrap">관리</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data?.items.map((m) => (
                   <TableRow key={m.id} className="border-border/30">
-                    <TableCell className="font-mono text-sm">{m.loginId}</TableCell>
-                    <TableCell className="font-medium">{m.name}</TableCell>
-                    <TableCell className="text-sm">{m.phone}</TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{m.email}</TableCell>
-                    <TableCell>
-                      <div className="text-sm">{m.storeName}</div>
-                      <div className="text-xs text-muted-foreground font-mono">{m.storeCode}</div>
+                    <TableCell className="font-mono text-sm whitespace-nowrap">{m.loginId}</TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">{m.name}</TableCell>
+                    <TableCell className="text-sm whitespace-nowrap">{m.phone}</TableCell>
+                    <TableCell className="text-sm whitespace-nowrap text-muted-foreground">{m.birthdate ?? "—"}</TableCell>
+                    <TableCell className="text-sm whitespace-nowrap text-muted-foreground">{m.email ?? "—"}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <div className="text-sm">{m.storeName ?? m.storeCode ?? "—"}</div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
                       {m.virtualAccountNumber ? (
                         <div className="flex items-center gap-1 text-xs">
-                          <CreditCard className="h-3 w-3 text-primary" />
-                          <span className="font-mono">{m.virtualAccountBank} {m.virtualAccountNumber}</span>
+                          <CreditCard className="h-3 w-3 text-primary shrink-0" />
+                          <span className="font-medium text-muted-foreground">{m.virtualAccountBank}</span>
+                          <span className="font-mono text-foreground">{m.virtualAccountNumber}</span>
                         </div>
                       ) : (
                         <span className="text-xs text-muted-foreground">미발급</span>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <Switch checked={m.isActive} onCheckedChange={() => handleToggle(m.id, m.isActive)} />
                         <Badge variant="outline" className={`text-xs ${m.isActive ? "border-green-500/30 text-green-400" : "border-slate-500/30 text-slate-400"}`}>
@@ -127,10 +202,33 @@ export default function Members() {
                       </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(m.createdAt)}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      <div className="flex gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground hover:text-primary"
+                          title="가상계좌 재발급"
+                          onClick={() => handleReissue(m.id)}
+                          disabled={reissue.isPending}
+                        >
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-7 w-7 text-muted-foreground hover:text-red-400"
+                          title="회원 삭제"
+                          onClick={() => setDeleteId(m.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
                 {data?.items.length === 0 && (
-                  <TableRow><TableCell colSpan={8} className="text-center py-10 text-muted-foreground">회원이 없습니다</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={10} className="text-center py-10 text-muted-foreground">회원이 없습니다</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -151,14 +249,15 @@ export default function Members() {
           <DialogHeader><DialogTitle>회원 등록</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: "아이디", key: "loginId", placeholder: "아이디" },
-              { label: "비밀번호", key: "password", placeholder: "비밀번호", type: "password" },
-              { label: "이름", key: "name", placeholder: "이름" },
-              { label: "전화번호", key: "phone", placeholder: "010-0000-0000" },
-              { label: "이메일", key: "email", placeholder: "email@example.com" },
-              { label: "매장 코드", key: "storeCode", placeholder: "STORE001" },
+              { label: "아이디 *", key: "loginId", placeholder: "아이디" },
+              { label: "비밀번호 *", key: "password", placeholder: "비밀번호", type: "password" },
+              { label: "이름 *", key: "name", placeholder: "이름" },
+              { label: "전화번호 *", key: "phone", placeholder: "010-0000-0000" },
+              { label: "이메일", key: "email", placeholder: "선택입력" },
+              { label: "매장 코드", key: "storeCode", placeholder: "선택입력" },
+              { label: "생년월일", key: "birthdate", placeholder: "1990-01-01" },
             ].map((f) => (
-              <div key={f.key} className="space-y-1">
+              <div key={f.key} className={`space-y-1 ${f.key === "birthdate" ? "col-span-2" : ""}`}>
                 <Label className="text-xs">{f.label}</Label>
                 <Input
                   type={f.type ?? "text"}
@@ -177,6 +276,27 @@ export default function Members() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={deleteId !== null} onOpenChange={(o) => { if (!o) setDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>회원 삭제</AlertDialogTitle>
+            <AlertDialogDescription>
+              이 회원을 삭제하면 가상계좌도 함께 폐기됩니다. 되돌릴 수 없습니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLoading}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleDelete()}
+              disabled={deleteLoading}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {deleteLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}삭제
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

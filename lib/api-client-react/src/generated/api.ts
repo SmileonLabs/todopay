@@ -24,9 +24,6 @@ import type {
   AuthResponse,
   BalanceRecordList,
   BalanceSummary,
-  Buyer,
-  BuyerInput,
-  BuyerList,
   DailyStatistic,
   FeeConfig,
   FeeConfigInput,
@@ -34,7 +31,6 @@ import type {
   GetDailyStatisticsParams,
   HealthStatus,
   ListBalanceRecordsParams,
-  ListBuyersParams,
   ListFeesParams,
   ListMembersParams,
   ListNoticesParams,
@@ -1422,389 +1418,40 @@ export const useUpdateMemberStatus = <
 };
 
 /**
- * @summary List buyers
+ * @summary Reissue virtual account for member
  */
-export const getListBuyersUrl = (params?: ListBuyersParams) => {
-  const normalizedParams = new URLSearchParams();
-
-  Object.entries(params || {}).forEach(([key, value]) => {
-    if (value !== undefined) {
-      normalizedParams.append(key, value === null ? "null" : value.toString());
-    }
-  });
-
-  const stringifiedParams = normalizedParams.toString();
-
-  return stringifiedParams.length > 0
-    ? `/api/buyers?${stringifiedParams}`
-    : `/api/buyers`;
+export const getReissueMemberVirtualAccountUrl = (id: number) => {
+  return `/api/members/${id}/virtual-account`;
 };
 
-export const listBuyers = async (
-  params?: ListBuyersParams,
-  options?: RequestInit,
-): Promise<BuyerList> => {
-  return customFetch<BuyerList>(getListBuyersUrl(params), {
-    ...options,
-    method: "GET",
-  });
-};
-
-export const getListBuyersQueryKey = (params?: ListBuyersParams) => {
-  return [`/api/buyers`, ...(params ? [params] : [])] as const;
-};
-
-export const getListBuyersQueryOptions = <
-  TData = Awaited<ReturnType<typeof listBuyers>>,
-  TError = ErrorType<unknown>,
->(
-  params?: ListBuyersParams,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof listBuyers>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getListBuyersQueryKey(params);
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof listBuyers>>> = ({
-    signal,
-  }) => listBuyers(params, { signal, ...requestOptions });
-
-  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof listBuyers>>,
-    TError,
-    TData
-  > & { queryKey: QueryKey };
-};
-
-export type ListBuyersQueryResult = NonNullable<
-  Awaited<ReturnType<typeof listBuyers>>
->;
-export type ListBuyersQueryError = ErrorType<unknown>;
-
-/**
- * @summary List buyers
- */
-
-export function useListBuyers<
-  TData = Awaited<ReturnType<typeof listBuyers>>,
-  TError = ErrorType<unknown>,
->(
-  params?: ListBuyersParams,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof listBuyers>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getListBuyersQueryOptions(params, options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * @summary Register buyer
- */
-export const getCreateBuyerUrl = () => {
-  return `/api/buyers`;
-};
-
-export const createBuyer = async (
-  buyerInput: BuyerInput,
-  options?: RequestInit,
-): Promise<Buyer> => {
-  return customFetch<Buyer>(getCreateBuyerUrl(), {
-    ...options,
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...options?.headers },
-    body: JSON.stringify(buyerInput),
-  });
-};
-
-export const getCreateBuyerMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof createBuyer>>,
-    TError,
-    { data: BodyType<BuyerInput> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof createBuyer>>,
-  TError,
-  { data: BodyType<BuyerInput> },
-  TContext
-> => {
-  const mutationKey = ["createBuyer"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof createBuyer>>,
-    { data: BodyType<BuyerInput> }
-  > = (props) => {
-    const { data } = props ?? {};
-
-    return createBuyer(data, requestOptions);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type CreateBuyerMutationResult = NonNullable<
-  Awaited<ReturnType<typeof createBuyer>>
->;
-export type CreateBuyerMutationBody = BodyType<BuyerInput>;
-export type CreateBuyerMutationError = ErrorType<unknown>;
-
-/**
- * @summary Register buyer
- */
-export const useCreateBuyer = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof createBuyer>>,
-    TError,
-    { data: BodyType<BuyerInput> },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof createBuyer>>,
-  TError,
-  { data: BodyType<BuyerInput> },
-  TContext
-> => {
-  return useMutation(getCreateBuyerMutationOptions(options));
-};
-
-/**
- * @summary Get buyer
- */
-export const getGetBuyerUrl = (id: number) => {
-  return `/api/buyers/${id}`;
-};
-
-export const getBuyer = async (
+export const reissueMemberVirtualAccount = async (
   id: number,
   options?: RequestInit,
-): Promise<Buyer> => {
-  return customFetch<Buyer>(getGetBuyerUrl(id), {
-    ...options,
-    method: "GET",
-  });
-};
-
-export const getGetBuyerQueryKey = (id: number) => {
-  return [`/api/buyers/${id}`] as const;
-};
-
-export const getGetBuyerQueryOptions = <
-  TData = Awaited<ReturnType<typeof getBuyer>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof getBuyer>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-) => {
-  const { query: queryOptions, request: requestOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetBuyerQueryKey(id);
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getBuyer>>> = ({
-    signal,
-  }) => getBuyer(id, { signal, ...requestOptions });
-
-  return {
-    queryKey,
-    queryFn,
-    enabled: !!id,
-    ...queryOptions,
-  } as UseQueryOptions<Awaited<ReturnType<typeof getBuyer>>, TError, TData> & {
-    queryKey: QueryKey;
-  };
-};
-
-export type GetBuyerQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getBuyer>>
->;
-export type GetBuyerQueryError = ErrorType<unknown>;
-
-/**
- * @summary Get buyer
- */
-
-export function useGetBuyer<
-  TData = Awaited<ReturnType<typeof getBuyer>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  options?: {
-    query?: UseQueryOptions<
-      Awaited<ReturnType<typeof getBuyer>>,
-      TError,
-      TData
-    >;
-    request?: SecondParameter<typeof customFetch>;
-  },
-): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetBuyerQueryOptions(id, options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
-    queryKey: QueryKey;
-  };
-
-  return { ...query, queryKey: queryOptions.queryKey };
-}
-
-/**
- * @summary Delete buyer (revoke virtual account)
- */
-export const getDeleteBuyerUrl = (id: number) => {
-  return `/api/buyers/${id}`;
-};
-
-export const deleteBuyer = async (
-  id: number,
-  options?: RequestInit,
-): Promise<void> => {
-  return customFetch<void>(getDeleteBuyerUrl(id), {
-    ...options,
-    method: "DELETE",
-  });
-};
-
-export const getDeleteBuyerMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof deleteBuyer>>,
-    TError,
-    { id: number },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof deleteBuyer>>,
-  TError,
-  { id: number },
-  TContext
-> => {
-  const mutationKey = ["deleteBuyer"];
-  const { mutation: mutationOptions, request: requestOptions } = options
-    ? options.mutation &&
-      "mutationKey" in options.mutation &&
-      options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey }, request: undefined };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof deleteBuyer>>,
-    { id: number }
-  > = (props) => {
-    const { id } = props ?? {};
-
-    return deleteBuyer(id, requestOptions);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type DeleteBuyerMutationResult = NonNullable<
-  Awaited<ReturnType<typeof deleteBuyer>>
->;
-
-export type DeleteBuyerMutationError = ErrorType<unknown>;
-
-/**
- * @summary Delete buyer (revoke virtual account)
- */
-export const useDeleteBuyer = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof deleteBuyer>>,
-    TError,
-    { id: number },
-    TContext
-  >;
-  request?: SecondParameter<typeof customFetch>;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof deleteBuyer>>,
-  TError,
-  { id: number },
-  TContext
-> => {
-  return useMutation(getDeleteBuyerMutationOptions(options));
-};
-
-/**
- * @summary Reissue virtual account for buyer
- */
-export const getReissueBuyerVirtualAccountUrl = (id: number) => {
-  return `/api/buyers/${id}/virtual-account`;
-};
-
-export const reissueBuyerVirtualAccount = async (
-  id: number,
-  options?: RequestInit,
-): Promise<Buyer> => {
-  return customFetch<Buyer>(getReissueBuyerVirtualAccountUrl(id), {
+): Promise<Member> => {
+  return customFetch<Member>(getReissueMemberVirtualAccountUrl(id), {
     ...options,
     method: "POST",
   });
 };
 
-export const getReissueBuyerVirtualAccountMutationOptions = <
+export const getReissueMemberVirtualAccountMutationOptions = <
   TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof reissueBuyerVirtualAccount>>,
+    Awaited<ReturnType<typeof reissueMemberVirtualAccount>>,
     TError,
     { id: number },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationOptions<
-  Awaited<ReturnType<typeof reissueBuyerVirtualAccount>>,
+  Awaited<ReturnType<typeof reissueMemberVirtualAccount>>,
   TError,
   { id: number },
   TContext
 > => {
-  const mutationKey = ["reissueBuyerVirtualAccount"];
+  const mutationKey = ["reissueMemberVirtualAccount"];
   const { mutation: mutationOptions, request: requestOptions } = options
     ? options.mutation &&
       "mutationKey" in options.mutation &&
@@ -1814,72 +1461,72 @@ export const getReissueBuyerVirtualAccountMutationOptions = <
     : { mutation: { mutationKey }, request: undefined };
 
   const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof reissueBuyerVirtualAccount>>,
+    Awaited<ReturnType<typeof reissueMemberVirtualAccount>>,
     { id: number }
   > = (props) => {
     const { id } = props ?? {};
 
-    return reissueBuyerVirtualAccount(id, requestOptions);
+    return reissueMemberVirtualAccount(id, requestOptions);
   };
 
   return { mutationFn, ...mutationOptions };
 };
 
-export type ReissueBuyerVirtualAccountMutationResult = NonNullable<
-  Awaited<ReturnType<typeof reissueBuyerVirtualAccount>>
+export type ReissueMemberVirtualAccountMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reissueMemberVirtualAccount>>
 >;
 
-export type ReissueBuyerVirtualAccountMutationError = ErrorType<unknown>;
+export type ReissueMemberVirtualAccountMutationError = ErrorType<unknown>;
 
 /**
- * @summary Reissue virtual account for buyer
+ * @summary Reissue virtual account for member
  */
-export const useReissueBuyerVirtualAccount = <
+export const useReissueMemberVirtualAccount = <
   TError = ErrorType<unknown>,
   TContext = unknown,
 >(options?: {
   mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof reissueBuyerVirtualAccount>>,
+    Awaited<ReturnType<typeof reissueMemberVirtualAccount>>,
     TError,
     { id: number },
     TContext
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseMutationResult<
-  Awaited<ReturnType<typeof reissueBuyerVirtualAccount>>,
+  Awaited<ReturnType<typeof reissueMemberVirtualAccount>>,
   TError,
   { id: number },
   TContext
 > => {
-  return useMutation(getReissueBuyerVirtualAccountMutationOptions(options));
+  return useMutation(getReissueMemberVirtualAccountMutationOptions(options));
 };
 
 /**
- * @summary Get buyer registration link
+ * @summary Get member registration link
  */
-export const getGetBuyerRegisterLinkUrl = () => {
-  return `/api/buyers/register-link`;
+export const getGetMemberRegisterLinkUrl = () => {
+  return `/api/members/register-link`;
 };
 
-export const getBuyerRegisterLink = async (
+export const getMemberRegisterLink = async (
   options?: RequestInit,
 ): Promise<RegisterLink> => {
-  return customFetch<RegisterLink>(getGetBuyerRegisterLinkUrl(), {
+  return customFetch<RegisterLink>(getGetMemberRegisterLinkUrl(), {
     ...options,
     method: "GET",
   });
 };
 
-export const getGetBuyerRegisterLinkQueryKey = () => {
-  return [`/api/buyers/register-link`] as const;
+export const getGetMemberRegisterLinkQueryKey = () => {
+  return [`/api/members/register-link`] as const;
 };
 
-export const getGetBuyerRegisterLinkQueryOptions = <
-  TData = Awaited<ReturnType<typeof getBuyerRegisterLink>>,
+export const getGetMemberRegisterLinkQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMemberRegisterLink>>,
   TError = ErrorType<unknown>,
 >(options?: {
   query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getBuyerRegisterLink>>,
+    Awaited<ReturnType<typeof getMemberRegisterLink>>,
     TError,
     TData
   >;
@@ -1887,40 +1534,40 @@ export const getGetBuyerRegisterLinkQueryOptions = <
 }) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetBuyerRegisterLinkQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getGetMemberRegisterLinkQueryKey();
 
   const queryFn: QueryFunction<
-    Awaited<ReturnType<typeof getBuyerRegisterLink>>
-  > = ({ signal }) => getBuyerRegisterLink({ signal, ...requestOptions });
+    Awaited<ReturnType<typeof getMemberRegisterLink>>
+  > = ({ signal }) => getMemberRegisterLink({ signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getBuyerRegisterLink>>,
+    Awaited<ReturnType<typeof getMemberRegisterLink>>,
     TError,
     TData
   > & { queryKey: QueryKey };
 };
 
-export type GetBuyerRegisterLinkQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getBuyerRegisterLink>>
+export type GetMemberRegisterLinkQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMemberRegisterLink>>
 >;
-export type GetBuyerRegisterLinkQueryError = ErrorType<unknown>;
+export type GetMemberRegisterLinkQueryError = ErrorType<unknown>;
 
 /**
- * @summary Get buyer registration link
+ * @summary Get member registration link
  */
 
-export function useGetBuyerRegisterLink<
-  TData = Awaited<ReturnType<typeof getBuyerRegisterLink>>,
+export function useGetMemberRegisterLink<
+  TData = Awaited<ReturnType<typeof getMemberRegisterLink>>,
   TError = ErrorType<unknown>,
 >(options?: {
   query?: UseQueryOptions<
-    Awaited<ReturnType<typeof getBuyerRegisterLink>>,
+    Awaited<ReturnType<typeof getMemberRegisterLink>>,
     TError,
     TData
   >;
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetBuyerRegisterLinkQueryOptions(options);
+  const queryOptions = getGetMemberRegisterLinkQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

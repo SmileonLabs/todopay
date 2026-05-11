@@ -11,7 +11,6 @@ import Dashboard from "./pages/dashboard";
 import Withdrawals from "./pages/withdrawals";
 import Transactions from "./pages/transactions";
 import Balances from "./pages/balances";
-import Buyers from "./pages/buyers";
 import Members from "./pages/members";
 import Users from "./pages/users";
 import Fees from "./pages/fees";
@@ -57,9 +56,6 @@ function Router() {
       </Route>
       <Route path="/balances">
         <Layout><Balances /></Layout>
-      </Route>
-      <Route path="/buyers">
-        <Layout><Buyers /></Layout>
       </Route>
       <Route path="/members">
         <Layout><Members /></Layout>

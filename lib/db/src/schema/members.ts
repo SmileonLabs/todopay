@@ -8,9 +8,11 @@ export const membersTable = pgTable("members", {
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   phone: text("phone").notNull(),
-  email: text("email").notNull(),
-  storeCode: text("store_code").notNull(),
+  email: text("email"),
+  storeCode: text("store_code"),
   storeId: integer("store_id"),
+  birthdate: text("birthdate"),
+  isVerified: boolean("is_verified").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });

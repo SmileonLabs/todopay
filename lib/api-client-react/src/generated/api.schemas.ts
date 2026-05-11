@@ -72,14 +72,25 @@ export interface Member {
   loginId: string;
   name: string;
   phone: string;
-  email: string;
-  storeCode: string;
-  storeName: string;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  storeCode?: string | null;
+  /** @nullable */
+  storeName?: string | null;
+  /** @nullable */
+  birthdate?: string | null;
+  isVerified: boolean;
   isActive: boolean;
   /** @nullable */
   virtualAccountNumber?: string | null;
   /** @nullable */
   virtualAccountBank?: string | null;
+  /**
+   * active | revoked
+   * @nullable
+   */
+  virtualAccountStatus?: string | null;
   createdAt: string;
 }
 
@@ -93,49 +104,26 @@ export interface MemberInput {
   password: string;
   name: string;
   phone: string;
-  email: string;
-  storeCode: string;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  storeCode?: string | null;
+  /** @nullable */
+  birthdate?: string | null;
 }
 
 export interface MemberUpdate {
   name?: string;
   phone?: string;
-  email?: string;
+  /** @nullable */
+  email?: string | null;
+  /** @nullable */
+  birthdate?: string | null;
   isActive?: boolean;
 }
 
 export interface StatusUpdate {
   isActive: boolean;
-}
-
-export interface Buyer {
-  id: number;
-  name: string;
-  loginId: string;
-  phone: string;
-  birthdate: string;
-  isVerified: boolean;
-  virtualAccountNumber: string;
-  virtualAccountBank: string;
-  /** active | revoked */
-  virtualAccountStatus: string;
-  /** @nullable */
-  withdrawalAccount?: string | null;
-  createdAt: string;
-  updatedAt?: string;
-}
-
-export interface BuyerList {
-  items: Buyer[];
-  total: number;
-}
-
-export interface BuyerInput {
-  name: string;
-  loginId: string;
-  password: string;
-  phone: string;
-  birthdate: string;
 }
 
 export interface RegisterLink {
@@ -348,14 +336,6 @@ export type ListUsersParams = {
 export type ListMembersParams = {
   storeCode?: string;
   search?: string;
-  page?: number;
-  limit?: number;
-};
-
-export type ListBuyersParams = {
-  search?: string;
-  startDate?: string;
-  endDate?: string;
   page?: number;
   limit?: number;
 };

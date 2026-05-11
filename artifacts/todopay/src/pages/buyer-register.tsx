@@ -66,7 +66,8 @@ export default function BuyerRegister() {
     setLoading(true);
     setApiError("");
     try {
-      const res = await fetch("/api/buyers", {
+      const baseUrl = import.meta.env.BASE_URL ?? "/";
+      const res = await fetch(`${baseUrl}api/members`.replace(/\/+/g, "/").replace(":/", "://"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -74,7 +75,7 @@ export default function BuyerRegister() {
           loginId: form.loginId.trim(),
           password: form.password,
           phone: form.phone.replace(/\D/g, ""),
-          birthdate: form.birthdate.replace(/-/g, ""),
+          birthdate: form.birthdate,
         }),
       });
       if (!res.ok) {
