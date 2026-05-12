@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, feeConfigsTable, adminUsersTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { CreateFeeConfigBody, UpdateFeeConfigBody } from "@workspace/api-zod";
 
 const router = Router();
@@ -24,6 +24,70 @@ router.get("/fees", async (req, res) => {
   const caller = await getCallerFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
+  const roleFilter = req.query.role as string | undefined;
+
+  if (roleFilter) {
+    // Recursive CTE: get all descendants of caller, filtered by role
+    const queryResult = await db.execute(sql`
+      WITH RECURSIVE descendants AS (
+        SELECT id, login_id, name, role, parent_id
+        FROM admin_users
+        WHERE id = ${caller.id}
+        UNION ALL
+        SELECT au.id, au.login_id, au.name, au.role, au.parent_id
+        FROM admin_users au
+        JOIN descendants d ON au.parent_id = d.id
+      )
+      SELECT
+        au.id         AS user_id,
+        au.login_id   AS user_login_id,
+        au.name       AS user_name,
+        au.role       AS role,
+        au.parent_id  AS parent_id,
+        p.name        AS parent_name,
+        p.login_id    AS parent_login_id,
+        fc.id         AS fee_config_id,
+        fc.deposit_fee    AS deposit_fee,
+        fc.withdrawal_fee AS withdrawal_fee
+      FROM descendants au
+      LEFT JOIN admin_users p ON p.id = au.parent_id
+      LEFT JOIN fee_configs fc ON fc.user_id = au.id
+      WHERE au.id != ${caller.id}
+        AND au.role = ${roleFilter}
+      ORDER BY au.name
+    `);
+
+    const rows = (queryResult as unknown as { rows: Array<{
+      user_id: number;
+      user_login_id: string;
+      user_name: string;
+      role: string;
+      parent_id: number | null;
+      parent_name: string | null;
+      parent_login_id: string | null;
+      fee_config_id: number | null;
+      deposit_fee: string | null;
+      withdrawal_fee: string | null;
+    }> }).rows;
+
+    const result = rows.map(r => ({
+      userId: r.user_id,
+      userLoginId: r.user_login_id,
+      userName: r.user_name,
+      role: r.role,
+      parentId: r.parent_id ?? null,
+      parentName: r.parent_name ?? null,
+      parentLoginId: r.parent_login_id ?? null,
+      feeConfigId: r.fee_config_id ?? null,
+      depositFee: r.deposit_fee != null ? Number(r.deposit_fee) : null,
+      withdrawalFee: r.withdrawal_fee != null ? Number(r.withdrawal_fee) : null,
+    }));
+
+    res.json(result);
+    return;
+  }
+
+  // Legacy: direct children of parentId (or caller)
   const parentId = req.query.parentId
     ? parseInt(req.query.parentId as string, 10)
     : caller.id;
@@ -34,6 +98,7 @@ router.get("/fees", async (req, res) => {
       userLoginId: adminUsersTable.loginId,
       userName: adminUsersTable.name,
       role: adminUsersTable.role,
+      parentId: adminUsersTable.parentId,
       feeConfigId: feeConfigsTable.id,
       depositFee: feeConfigsTable.depositFee,
       withdrawalFee: feeConfigsTable.withdrawalFee,
@@ -53,6 +118,9 @@ router.get("/fees", async (req, res) => {
     userLoginId: r.userLoginId,
     userName: r.userName,
     role: r.role,
+    parentId: r.parentId ?? null,
+    parentName: null,
+    parentLoginId: null,
     feeConfigId: r.feeConfigId ?? null,
     depositFee: r.depositFee != null ? Number(r.depositFee) : null,
     withdrawalFee: r.withdrawalFee != null ? Number(r.withdrawalFee) : null,

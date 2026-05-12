@@ -11,4 +11,8 @@ export type ListFeesParams = {
    * @nullable
    */
   parentId?: number | null;
+  /**
+   * @nullable
+   */
+  role?: string | null;
 };

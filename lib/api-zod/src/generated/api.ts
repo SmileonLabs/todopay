@@ -568,10 +568,11 @@ export const GetBalanceSummaryResponse = zod.object({
 });
 
 /**
- * @summary List fee configurations for direct subordinates
+ * @summary List fee configurations for subordinates by role
  */
 export const ListFeesQueryParams = zod.object({
   parentId: zod.coerce.number().nullish(),
+  role: zod.coerce.string().nullish(),
 });
 
 export const ListFeesResponseItem = zod.object({
@@ -579,6 +580,9 @@ export const ListFeesResponseItem = zod.object({
   userLoginId: zod.string(),
   userName: zod.string(),
   role: zod.string(),
+  parentId: zod.number().nullish(),
+  parentName: zod.string().nullish(),
+  parentLoginId: zod.string().nullish(),
   feeConfigId: zod.number().nullish(),
   depositFee: zod.number().nullish(),
   withdrawalFee: zod.number().nullish(),

@@ -2545,7 +2545,7 @@ export function useGetBalanceSummary<
 }
 
 /**
- * @summary List fee configurations for direct subordinates
+ * @summary List fee configurations for subordinates by role
  */
 export const getListFeesUrl = (params?: ListFeesParams) => {
   const normalizedParams = new URLSearchParams();
@@ -2612,7 +2612,7 @@ export type ListFeesQueryResult = NonNullable<
 export type ListFeesQueryError = ErrorType<unknown>;
 
 /**
- * @summary List fee configurations for direct subordinates
+ * @summary List fee configurations for subordinates by role
  */
 
 export function useListFees<

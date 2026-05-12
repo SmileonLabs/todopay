@@ -680,12 +680,16 @@ paths:
     get:
       operationId: listFees
       tags: [fees]
-      summary: List fee configurations for direct subordinates
+      summary: List fee configurations for subordinates by role
       parameters:
         - name: parentId
           in: query
           schema:
             type: ["integer", "null"]
+        - name: role
+          in: query
+          schema:
+            type: ["string", "null"]
       responses:
         "200":
           description: Fee configurations
@@ -1326,6 +1330,12 @@ components:
           type: string
         role:
           type: string
+        parentId:
+          type: ["integer", "null"]
+        parentName:
+          type: ["string", "null"]
+        parentLoginId:
+          type: ["string", "null"]
         feeConfigId:
           type: ["integer", "null"]
         depositFee:

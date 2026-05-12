@@ -12,6 +12,12 @@ export interface FeeListItem {
   userName: string;
   role: string;
   /** @nullable */
+  parentId?: number | null;
+  /** @nullable */
+  parentName?: string | null;
+  /** @nullable */
+  parentLoginId?: string | null;
+  /** @nullable */
   feeConfigId?: number | null;
   /** @nullable */
   depositFee?: number | null;
