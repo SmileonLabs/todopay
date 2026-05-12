@@ -62,20 +62,19 @@ const CREATABLE_ROLES: Record<string, string[]> = {
 const REQUIRED_PARENT_ROLE: Record<string, string | null> = {
   hq: null, distributor: "hq", agency: "distributor", store: "agency",
 };
-
-type UserItem = {
-  id: number;
-  loginId: string;
-  name: string;
-  role: string;
-  permission: string;
-  isActive: boolean;
-  useOtp: boolean;
-  parentId: number | null;
-  parentName: string | null;
-  createdAt: string;
+const CHILD_ROLE: Record<string, string | null> = {
+  superadmin: "hq",
+  hq: "distributor",
+  distributor: "agency",
+  agency: "store",
+  store: null,
 };
 
+type UserItem = {
+  id: number; loginId: string; name: string; role: string;
+  permission: string; isActive: boolean; useOtp: boolean;
+  parentId: number | null; parentName: string | null; createdAt: string;
+};
 type TreeNode = UserItem & { children: TreeNode[] };
 
 function buildTree(users: UserItem[]): TreeNode[] {
@@ -91,11 +90,11 @@ function buildTree(users: UserItem[]): TreeNode[] {
     }
   });
   const roleOrder = ["superadmin", "hq", "distributor", "agency", "store"];
-  const sortNodes = (nodes: TreeNode[]) => {
+  const sort = (nodes: TreeNode[]) => {
     nodes.sort((a, b) => roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role) || a.name.localeCompare(b.name, "ko"));
-    nodes.forEach(n => sortNodes(n.children));
+    nodes.forEach(n => sort(n.children));
   };
-  sortNodes(roots);
+  sort(roots);
   return roots;
 }
 
@@ -108,30 +107,32 @@ type NodeRowProps = {
   depth: number;
   isLast: boolean;
   ancestorIsLast: boolean[];
+  myRole: string;
   onResetPw: (id: number) => void;
   onDelete: (id: number, name: string) => void;
   onPermChange: (id: number, perm: string) => void;
   onToggle: (id: number, current: boolean) => void;
+  onAddChild: (node: TreeNode) => void;
 };
 
 function NodeRow({
-  node, depth, isLast, ancestorIsLast, onResetPw, onDelete, onPermChange, onToggle,
+  node, depth, isLast, ancestorIsLast, myRole,
+  onResetPw, onDelete, onPermChange, onToggle, onAddChild,
 }: NodeRowProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children.length > 0;
   const Icon = ROLE_ICONS[node.role] ?? Shield;
   const desc = countDescendants(node);
+  const childRole = CHILD_ROLE[node.role];
+  const canAddChild = !!childRole && (CREATABLE_ROLES[myRole] ?? []).includes(childRole);
 
   return (
     <>
       <div className="group flex items-center min-h-[44px] hover:bg-white/[0.03] border-b border-border/20 relative">
-        {/* Tree lines */}
-        <div className="flex shrink-0" style={{ width: depth * 24 + (depth > 0 ? 0 : 0) }}>
+        {/* Tree indent lines */}
+        <div className="flex shrink-0" style={{ width: depth * 24 }}>
           {Array.from({ length: depth }).map((_, i) => (
-            <div
-              key={i}
-              className={`w-6 shrink-0 relative flex justify-center`}
-            >
+            <div key={i} className="w-6 shrink-0 relative flex justify-center">
               {!ancestorIsLast[i] && (
                 <div className={`absolute top-0 bottom-0 left-1/2 border-l border-dashed ${ROLE_LINE_COLORS[node.role] ?? "border-border/30"} opacity-40`} />
               )}
@@ -150,9 +151,7 @@ function NodeRow({
           {hasChildren ? (
             <button onClick={() => setExpanded(!expanded)}
               className="h-5 w-5 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors">
-              {expanded
-                ? <ChevronDown className="h-3.5 w-3.5" />
-                : <ChevronRightIcon className="h-3.5 w-3.5" />}
+              {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRightIcon className="h-3.5 w-3.5" />}
             </button>
           ) : (
             <div className="h-5 w-5" />
@@ -169,12 +168,22 @@ function NodeRow({
           </Badge>
         </div>
 
-        {/* Name + loginId */}
+        {/* Name + loginId + child count */}
         <div className="flex-1 min-w-0 flex items-center gap-2 pr-3">
           <span className="font-semibold text-sm text-foreground truncate">{node.name}</span>
           <span className="text-xs text-muted-foreground font-mono shrink-0">({node.loginId})</span>
           {desc > 0 && (
-            <span className="text-[10px] text-muted-foreground/60 shrink-0">{desc}개 하위</span>
+            <span className="text-[10px] text-muted-foreground/50 shrink-0">{desc}개 하위</span>
+          )}
+          {/* Quick add child button — always visible when canAddChild */}
+          {canAddChild && (
+            <button
+              onClick={() => onAddChild(node)}
+              className="ml-1 h-5 w-5 rounded border border-dashed border-primary/40 flex items-center justify-center text-primary/60 hover:text-primary hover:border-primary hover:bg-primary/10 transition-colors shrink-0"
+              title={`${ROLE_LABELS[childRole!]} 바로 추가`}
+            >
+              <Plus className="h-3 w-3" />
+            </button>
           )}
         </div>
 
@@ -196,12 +205,8 @@ function NodeRow({
 
         {/* Active */}
         <div className="w-16 shrink-0 flex items-center pr-3">
-          <Switch
-            checked={node.isActive}
-            onCheckedChange={() => onToggle(node.id, node.isActive)}
-            disabled={node.role === "superadmin"}
-            className="scale-75 origin-left"
-          />
+          <Switch checked={node.isActive} onCheckedChange={() => onToggle(node.id, node.isActive)}
+            disabled={node.role === "superadmin"} className="scale-75 origin-left" />
           <span className={`text-[10px] ml-1 ${node.isActive ? "text-primary" : "text-muted-foreground"}`}>
             {node.isActive ? "활성" : "비활"}
           </span>
@@ -214,22 +219,18 @@ function NodeRow({
           </Badge>
         </div>
 
-        {/* Actions */}
+        {/* Actions (hover) */}
         <div className="w-16 shrink-0 flex items-center gap-1 pr-3 opacity-0 group-hover:opacity-100 transition-opacity">
           {node.role !== "superadmin" && (
             <>
-              <button
-                onClick={() => onResetPw(node.id)}
+              <button onClick={() => onResetPw(node.id)}
                 className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
-                title="비밀번호 초기화"
-              >
+                title="비밀번호 초기화">
                 <KeyRound className="h-3 w-3" />
               </button>
-              <button
-                onClick={() => onDelete(node.id, node.name)}
+              <button onClick={() => onDelete(node.id, node.name)}
                 className="h-6 w-6 rounded flex items-center justify-center text-red-400/60 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                title="삭제"
-              >
+                title="삭제">
                 <Trash2 className="h-3 w-3" />
               </button>
             </>
@@ -245,10 +246,12 @@ function NodeRow({
           depth={depth + 1}
           isLast={idx === node.children.length - 1}
           ancestorIsLast={[...ancestorIsLast, isLast]}
+          myRole={myRole}
           onResetPw={onResetPw}
           onDelete={onDelete}
           onPermChange={onPermChange}
           onToggle={onToggle}
+          onAddChild={onAddChild}
         />
       ))}
     </>
@@ -262,6 +265,7 @@ type FormState = {
 const DEFAULT_FORM: FormState = {
   loginId: "", password: "", name: "", role: "", permission: "admin", parentId: null,
 };
+type LockedParent = { id: number; name: string; loginId: string; role: string };
 
 export default function Users() {
   const { toast } = useToast();
@@ -269,6 +273,7 @@ export default function Users() {
   const { user } = useAuth();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [lockedParent, setLockedParent] = useState<LockedParent | null>(null);
   const [resetId, setResetId] = useState<number | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM });
@@ -277,7 +282,7 @@ export default function Users() {
   const creatableRoles = CREATABLE_ROLES[myRole] ?? [];
   const requiredParentRole = REQUIRED_PARENT_ROLE[form.role] ?? null;
   const callerIsParent = !!requiredParentRole && myRole === requiredParentRole;
-  const needsParentSelect = !!requiredParentRole && !callerIsParent;
+  const needsParentSelect = !!requiredParentRole && !callerIsParent && !lockedParent;
 
   const { data, isLoading, refetch } = useListUsers({ limit: 500 });
 
@@ -300,14 +305,30 @@ export default function Users() {
     void refetch();
   };
 
-  useEffect(() => {
-    if (creatableRoles.length > 0) {
-      setForm(p => ({ ...p, role: creatableRoles[0], parentId: null }));
-    }
-  }, [createOpen]);
+  const openCreate = () => {
+    setLockedParent(null);
+    setForm({ ...DEFAULT_FORM, role: creatableRoles[0] ?? "", permission: "admin" });
+    setCreateOpen(true);
+  };
+
+  const openCreateForChild = (parentNode: TreeNode) => {
+    const childRole = CHILD_ROLE[parentNode.role];
+    if (!childRole) return;
+    setLockedParent({ id: parentNode.id, name: parentNode.name, loginId: parentNode.loginId, role: parentNode.role });
+    setForm({ ...DEFAULT_FORM, role: childRole, permission: "admin", parentId: parentNode.id });
+    setCreateOpen(true);
+  };
+
+  const closeCreate = () => {
+    setCreateOpen(false);
+    setLockedParent(null);
+    setForm({ ...DEFAULT_FORM });
+  };
 
   useEffect(() => {
-    setForm(p => ({ ...p, parentId: null }));
+    if (!lockedParent) {
+      setForm(p => ({ ...p, parentId: null }));
+    }
   }, [form.role]);
 
   const handleCreate = () => {
@@ -317,17 +338,21 @@ export default function Users() {
     if (needsParentSelect && !form.parentId) {
       toast({ title: `상위 ${ROLE_LABELS[requiredParentRole!]}를 선택해주세요`, variant: "destructive" }); return;
     }
+
     const payload: Record<string, unknown> = {
       loginId: form.loginId.trim(), password: form.password,
       name: form.name.trim(), role: form.role, permission: form.permission,
     };
-    if (needsParentSelect && form.parentId) payload.parentId = form.parentId;
+    if (lockedParent && requiredParentRole) {
+      payload.parentId = lockedParent.id;
+    } else if (needsParentSelect && form.parentId) {
+      payload.parentId = form.parentId;
+    }
 
     create.mutate({ data: payload as Parameters<typeof create.mutate>[0]["data"] }, {
       onSuccess: () => {
         toast({ title: "등록 완료" });
-        setCreateOpen(false);
-        setForm({ ...DEFAULT_FORM });
+        closeCreate();
         invalidate();
       },
       onError: (e: unknown) => {
@@ -371,24 +396,21 @@ export default function Users() {
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">하부 조직 관리</h1>
           <p className="text-sm text-muted-foreground mt-1">전체 {totalCount}명 · 조직 계층 구조</p>
         </div>
         {creatableRoles.length > 0 && (
-          <Button onClick={() => setCreateOpen(true)} className="bg-primary text-black hover:bg-primary/90">
+          <Button onClick={openCreate} className="bg-primary text-black hover:bg-primary/90">
             <Plus className="h-4 w-4 mr-2" />조직원 등록
           </Button>
         )}
       </div>
 
-      {/* Tree */}
       <div className="rounded-lg border border-border/50 bg-card/50 overflow-hidden">
-        {/* Column header */}
         <div className="flex items-center h-9 border-b border-border/50 bg-muted/20 text-xs text-muted-foreground font-medium px-3">
-          <div style={{ width: 6 + 24 }} className="shrink-0" />
+          <div style={{ width: 30 }} className="shrink-0" />
           <div className="w-[130px] shrink-0">역할</div>
           <div className="flex-1 min-w-0">이름 (아이디)</div>
           <div className="w-28 shrink-0">권한</div>
@@ -412,10 +434,12 @@ export default function Users() {
                 depth={0}
                 isLast={idx === tree.length - 1}
                 ancestorIsLast={[]}
+                myRole={myRole}
                 onResetPw={(id) => { setResetId(id); setNewPassword(""); }}
                 onDelete={handleDelete}
                 onPermChange={handlePermChange}
                 onToggle={handleToggle}
+                onAddChild={openCreateForChild}
               />
             ))}
           </div>
@@ -441,10 +465,14 @@ export default function Users() {
       </Dialog>
 
       {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={(o) => { setCreateOpen(o); if (!o) setForm({ ...DEFAULT_FORM }); }}>
+      <Dialog open={createOpen} onOpenChange={(o) => { if (!o) closeCreate(); }}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>조직원 등록</DialogTitle>
+            <DialogTitle>
+              {lockedParent
+                ? `${ROLE_LABELS[CHILD_ROLE[lockedParent.role] ?? ""] ?? ""} 등록`
+                : "조직원 등록"}
+            </DialogTitle>
             {form.role && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1 flex-wrap">
                 <span>계층 위치:</span>
@@ -467,11 +495,9 @@ export default function Users() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">아이디 *</Label>
-                <Input
-                  value={form.loginId}
+                <Input value={form.loginId}
                   onChange={(e) => setForm(p => ({ ...p, loginId: e.target.value.replace(/\s/g, "") }))}
-                  placeholder="영문/숫자"
-                />
+                  placeholder="영문/숫자" />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">비밀번호 *</Label>
@@ -484,14 +510,20 @@ export default function Users() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">역할 *</Label>
-                <Select value={form.role} onValueChange={(v) => setForm(p => ({ ...p, role: v, parentId: null }))}>
-                  <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
-                  <SelectContent>
-                    {creatableRoles.map(r => (
-                      <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {lockedParent ? (
+                  <div className={`h-10 px-3 rounded-md border flex items-center text-sm ${ROLE_COLORS[form.role] ?? "border-border/40"}`}>
+                    {ROLE_LABELS[form.role]}
+                  </div>
+                ) : (
+                  <Select value={form.role} onValueChange={(v) => setForm(p => ({ ...p, role: v, parentId: null }))}>
+                    <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
+                    <SelectContent>
+                      {creatableRoles.map(r => (
+                        <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="space-y-1">
                 <Label className="text-xs text-muted-foreground">권한</Label>
@@ -506,15 +538,29 @@ export default function Users() {
               </div>
             </div>
 
+            {/* Locked parent info */}
+            {lockedParent && (
+              <div className="rounded-md border px-3 py-2.5 flex items-center gap-2">
+                <div className={`h-6 w-6 rounded border flex items-center justify-center shrink-0 ${ROLE_COLORS[lockedParent.role] ?? ""}`}>
+                  {React.createElement(ROLE_ICONS[lockedParent.role] ?? Shield, { className: "h-3 w-3" })}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-muted-foreground">상위 {ROLE_LABELS[lockedParent.role]}</div>
+                  <div className="text-sm font-medium text-foreground truncate">
+                    {lockedParent.name}
+                    <span className="text-muted-foreground font-normal ml-1.5 font-mono text-xs">({lockedParent.loginId})</span>
+                  </div>
+                </div>
+                <Badge variant="outline" className="text-[10px] shrink-0 border-primary/30 text-primary">자동 지정</Badge>
+              </div>
+            )}
+
+            {/* Free parent select */}
             {needsParentSelect && requiredParentRole && (
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">
-                  상위 {ROLE_LABELS[requiredParentRole]} 선택 *
-                </Label>
-                <Select
-                  value={form.parentId?.toString() ?? ""}
-                  onValueChange={(v) => setForm(p => ({ ...p, parentId: parseInt(v, 10) }))}
-                >
+                <Label className="text-xs text-muted-foreground">상위 {ROLE_LABELS[requiredParentRole]} 선택 *</Label>
+                <Select value={form.parentId?.toString() ?? ""}
+                  onValueChange={(v) => setForm(p => ({ ...p, parentId: parseInt(v, 10) }))}>
                   <SelectTrigger>
                     <SelectValue placeholder={`${ROLE_LABELS[requiredParentRole]} 선택`} />
                   </SelectTrigger>
@@ -534,7 +580,8 @@ export default function Users() {
               </div>
             )}
 
-            {callerIsParent && (
+            {/* Caller is parent (own account auto-assign) */}
+            {callerIsParent && !lockedParent && (
               <div className="rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-xs text-muted-foreground">
                 상위: <span className="text-foreground font-medium">{user?.name} ({user?.loginId})</span> — 자동 지정
               </div>
@@ -542,7 +589,7 @@ export default function Users() {
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setCreateOpen(false); setForm({ ...DEFAULT_FORM }); }}>취소</Button>
+            <Button variant="outline" onClick={closeCreate}>취소</Button>
             <Button onClick={handleCreate} disabled={create.isPending} className="bg-primary text-black hover:bg-primary/90">
               {create.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}등록
             </Button>
