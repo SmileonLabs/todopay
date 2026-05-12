@@ -29,6 +29,7 @@ import type {
   FeeConfig,
   FeeConfigInput,
   FeeConfigUpdate,
+  FeeListItem,
   GetDailyStatisticsParams,
   HealthStatus,
   ListBalanceRecordsParams,
@@ -2544,7 +2545,7 @@ export function useGetBalanceSummary<
 }
 
 /**
- * @summary List fee configurations
+ * @summary List fee configurations for direct subordinates
  */
 export const getListFeesUrl = (params?: ListFeesParams) => {
   const normalizedParams = new URLSearchParams();
@@ -2565,8 +2566,8 @@ export const getListFeesUrl = (params?: ListFeesParams) => {
 export const listFees = async (
   params?: ListFeesParams,
   options?: RequestInit,
-): Promise<FeeConfig[]> => {
-  return customFetch<FeeConfig[]>(getListFeesUrl(params), {
+): Promise<FeeListItem[]> => {
+  return customFetch<FeeListItem[]>(getListFeesUrl(params), {
     ...options,
     method: "GET",
   });
@@ -2611,7 +2612,7 @@ export type ListFeesQueryResult = NonNullable<
 export type ListFeesQueryError = ErrorType<unknown>;
 
 /**
- * @summary List fee configurations
+ * @summary List fee configurations for direct subordinates
  */
 
 export function useListFees<

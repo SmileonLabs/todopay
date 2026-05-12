@@ -240,6 +240,19 @@ export interface BalanceSummary {
   pendingAmount: number;
 }
 
+export interface FeeListItem {
+  userId: number;
+  userLoginId: string;
+  userName: string;
+  role: string;
+  /** @nullable */
+  feeConfigId?: number | null;
+  /** @nullable */
+  depositFee?: number | null;
+  /** @nullable */
+  withdrawalFee?: number | null;
+}
+
 export interface FeeConfig {
   id: number;
   userId: number;
@@ -388,7 +401,7 @@ export type ListFeesParams = {
   /**
    * @nullable
    */
-  userId?: number | null;
+  parentId?: number | null;
 };
 
 export type GetDailyStatisticsParams = {

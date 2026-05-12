@@ -680,9 +680,9 @@ paths:
     get:
       operationId: listFees
       tags: [fees]
-      summary: List fee configurations
+      summary: List fee configurations for direct subordinates
       parameters:
-        - name: userId
+        - name: parentId
           in: query
           schema:
             type: ["integer", "null"]
@@ -694,7 +694,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/FeeConfig"
+                  $ref: "#/components/schemas/FeeListItem"
     post:
       operationId: createFeeConfig
       tags: [fees]
@@ -1314,6 +1314,25 @@ components:
           type: number
 
     # Fees
+    FeeListItem:
+      type: object
+      required: [userId, userLoginId, userName, role]
+      properties:
+        userId:
+          type: integer
+        userLoginId:
+          type: string
+        userName:
+          type: string
+        role:
+          type: string
+        feeConfigId:
+          type: ["integer", "null"]
+        depositFee:
+          type: ["number", "null"]
+        withdrawalFee:
+          type: ["number", "null"]
+
     FeeConfig:
       type: object
       required: [id, userId, userName, role, depositFee, withdrawalFee, createdAt]

@@ -1,176 +1,294 @@
 import React, { useState } from "react";
-import { useListFees, useCreateFeeConfig, useUpdateFeeConfig } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  useListFees,
+  useCreateFeeConfig,
+  useUpdateFeeConfig,
+} from "@workspace/api-client-react";
+import type { FeeListItem } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/auth-context";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { formatDate } from "@/lib/format";
-import { Loader2, Pencil, Plus } from "lucide-react";
+import { Loader2, Pencil, Check, X, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { FeeConfig } from "@workspace/api-client-react";
+import {
+  Building2, Network, Store, Shield, Users as UsersIcon,
+} from "lucide-react";
 
-const ROLE_LABELS: Record<string, string> = { superadmin: "슈퍼관리자", hq: "본사", distributor: "총판", agency: "대리점", store: "매장" };
-const ROLE_COLORS: Record<string, string> = {
-  superadmin: "border-purple-500/30 text-purple-400",
-  hq: "border-blue-500/30 text-blue-400",
-  distributor: "border-green-500/30 text-green-400",
-  agency: "border-orange-500/30 text-orange-400",
-  store: "border-yellow-500/30 text-yellow-400",
+const ROLE_LABELS: Record<string, string> = {
+  superadmin: "슈퍼관리자", hq: "본사", distributor: "총판", agency: "대리점", store: "매장",
 };
+const ROLE_COLORS: Record<string, string> = {
+  superadmin: "border-purple-500/40 text-purple-400 bg-purple-500/10",
+  hq:         "border-blue-500/40 text-blue-400 bg-blue-500/10",
+  distributor:"border-green-500/40 text-green-400 bg-green-500/10",
+  agency:     "border-orange-500/40 text-orange-400 bg-orange-500/10",
+  store:      "border-yellow-500/40 text-yellow-400 bg-yellow-500/10",
+};
+const ROLE_ICONS: Record<string, React.ElementType> = {
+  superadmin: Shield, hq: Building2, distributor: Network, agency: UsersIcon, store: Store,
+};
+const CHILD_ROLE_LABELS: Record<string, string> = {
+  superadmin: "본사", hq: "총판", distributor: "대리점", agency: "매장", store: "",
+};
+
+type EditState = { deposit: string; withdrawal: string };
+
+function FeeRow({
+  item,
+  onSave,
+  isSaving,
+}: {
+  item: FeeListItem;
+  onSave: (item: FeeListItem, deposit: number, withdrawal: number) => void;
+  isSaving: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [vals, setVals] = useState<EditState>({
+    deposit: item.depositFee != null ? String(item.depositFee) : "0",
+    withdrawal: item.withdrawalFee != null ? String(item.withdrawalFee) : "0",
+  });
+
+  const Icon = ROLE_ICONS[item.role] ?? Shield;
+  const hasConfig = item.feeConfigId != null;
+
+  const handleSave = () => {
+    const d = parseFloat(vals.deposit);
+    const w = parseFloat(vals.withdrawal);
+    if (isNaN(d) || isNaN(w) || d < 0 || w < 0 || d > 100 || w > 100) return;
+    onSave(item, d, w);
+    setEditing(false);
+  };
+
+  const handleCancel = () => {
+    setVals({
+      deposit: item.depositFee != null ? String(item.depositFee) : "0",
+      withdrawal: item.withdrawalFee != null ? String(item.withdrawalFee) : "0",
+    });
+    setEditing(false);
+  };
+
+  return (
+    <div className="group flex items-center gap-3 px-4 py-3 border-b border-border/20 hover:bg-white/[0.02] last:border-b-0">
+      {/* Role icon + badge */}
+      <div className="flex items-center gap-2 w-[160px] shrink-0">
+        <div className={`h-7 w-7 rounded border flex items-center justify-center shrink-0 ${ROLE_COLORS[item.role] ?? ""}`}>
+          <Icon className="h-3.5 w-3.5" />
+        </div>
+        <Badge variant="outline" className={`text-[10px] font-medium px-1.5 ${ROLE_COLORS[item.role] ?? ""}`}>
+          {ROLE_LABELS[item.role] ?? item.role}
+        </Badge>
+      </div>
+
+      {/* Name + loginId */}
+      <div className="flex-1 min-w-0">
+        <span className="font-semibold text-sm text-foreground">{item.userName}</span>
+        <span className="text-xs text-muted-foreground font-mono ml-2">({item.userLoginId})</span>
+      </div>
+
+      {/* Fee values or inputs */}
+      {editing ? (
+        <>
+          <div className="flex items-center gap-1.5 w-40 shrink-0">
+            <span className="text-xs text-muted-foreground w-14 shrink-0">입금 수수료</span>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number" step="0.01" min="0" max="100"
+                value={vals.deposit}
+                onChange={(e) => setVals(p => ({ ...p, deposit: e.target.value }))}
+                className="h-7 w-20 text-xs text-right"
+                autoFocus
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 w-40 shrink-0">
+            <span className="text-xs text-muted-foreground w-14 shrink-0">출금 수수료</span>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number" step="0.01" min="0" max="100"
+                value={vals.withdrawal}
+                onChange={(e) => setVals(p => ({ ...p, withdrawal: e.target.value }))}
+                className="h-7 w-20 text-xs text-right"
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
+          </div>
+          <div className="flex gap-1 shrink-0">
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="h-7 w-7 rounded flex items-center justify-center bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50"
+            >
+              {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              onClick={handleCancel}
+              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-white/10 transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="w-40 shrink-0 flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">입금</span>
+            {hasConfig ? (
+              <span className="font-mono text-sm text-primary font-semibold">{item.depositFee}%</span>
+            ) : (
+              <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground">미설정</Badge>
+            )}
+          </div>
+          <div className="w-40 shrink-0 flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">출금</span>
+            {hasConfig ? (
+              <span className="font-mono text-sm text-primary font-semibold">{item.withdrawalFee}%</span>
+            ) : (
+              <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground">미설정</Badge>
+            )}
+          </div>
+          <button
+            onClick={() => {
+              setVals({
+                deposit: item.depositFee != null ? String(item.depositFee) : "0",
+                withdrawal: item.withdrawalFee != null ? String(item.withdrawalFee) : "0",
+              });
+              setEditing(true);
+            }}
+            className={`h-7 px-2.5 rounded flex items-center gap-1.5 text-xs transition-colors shrink-0 ${
+              hasConfig
+                ? "text-muted-foreground hover:text-foreground hover:bg-white/10 opacity-0 group-hover:opacity-100"
+                : "border border-primary/40 text-primary hover:bg-primary/10"
+            }`}
+          >
+            <Pencil className="h-3 w-3" />
+            {hasConfig ? "수정" : "설정"}
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function Fees() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [editTarget, setEditTarget] = useState<FeeConfig | null>(null);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [depositFee, setDepositFee] = useState("");
-  const [withdrawalFee, setWithdrawalFee] = useState("");
-  const [newUserId, setNewUserId] = useState("");
+  const { user } = useAuth();
 
   const { data, isLoading } = useListFees({});
-  const update = useUpdateFeeConfig();
   const create = useCreateFeeConfig();
+  const update = useUpdateFeeConfig();
+
+  const [savingId, setSavingId] = useState<number | null>(null);
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ["/api/fees"] });
 
-  const openEdit = (fc: FeeConfig) => {
-    setEditTarget(fc);
-    setDepositFee(String(fc.depositFee));
-    setWithdrawalFee(String(fc.withdrawalFee));
+  const handleSave = (item: FeeListItem, deposit: number, withdrawal: number) => {
+    setSavingId(item.userId);
+    if (item.feeConfigId != null) {
+      update.mutate(
+        { id: item.feeConfigId, data: { depositFee: deposit, withdrawalFee: withdrawal } },
+        {
+          onSuccess: () => { toast({ title: "수수료 수정 완료" }); invalidate(); setSavingId(null); },
+          onError: () => { toast({ title: "수정 실패", variant: "destructive" }); setSavingId(null); },
+        },
+      );
+    } else {
+      create.mutate(
+        { data: { userId: item.userId, depositFee: deposit, withdrawalFee: withdrawal } },
+        {
+          onSuccess: () => { toast({ title: "수수료 설정 완료" }); invalidate(); setSavingId(null); },
+          onError: () => { toast({ title: "설정 실패", variant: "destructive" }); setSavingId(null); },
+        },
+      );
+    }
   };
 
-  const handleUpdate = () => {
-    if (!editTarget) return;
-    update.mutate({ id: editTarget.id, data: { depositFee: parseFloat(depositFee), withdrawalFee: parseFloat(withdrawalFee) } }, {
-      onSuccess: () => { toast({ title: "수수료 수정 완료" }); setEditTarget(null); invalidate(); },
-      onError: () => toast({ title: "수정 실패", variant: "destructive" }),
-    });
-  };
-
-  const handleCreate = () => {
-    create.mutate({ data: { userId: parseInt(newUserId), depositFee: parseFloat(depositFee), withdrawalFee: parseFloat(withdrawalFee) } }, {
-      onSuccess: () => { toast({ title: "수수료 등록 완료" }); setCreateOpen(false); setNewUserId(""); setDepositFee(""); setWithdrawalFee(""); invalidate(); },
-      onError: () => toast({ title: "등록 실패", variant: "destructive" }),
-    });
-  };
+  const myRole = user?.role ?? "store";
+  const childRoleLabel = CHILD_ROLE_LABELS[myRole] ?? "";
+  const items = data ?? [];
+  const setCount = items.filter(i => i.feeConfigId != null).length;
+  const unsetCount = items.length - setCount;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">수수료 설정</h1>
-          <p className="text-muted-foreground mt-1">각 유저별 입금·출금 수수료율을 설정합니다 (%)</p>
-        </div>
-        <Button onClick={() => { setCreateOpen(true); setDepositFee(""); setWithdrawalFee(""); setNewUserId(""); }} className="bg-primary text-black hover:bg-primary/90">
-          <Plus className="h-4 w-4 mr-2" />수수료 등록
-        </Button>
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">수수료 설정</h1>
+        <p className="text-muted-foreground mt-1">
+          {childRoleLabel
+            ? `직속 ${childRoleLabel} 별 입금·출금 수수료율을 설정합니다 (%)`
+            : "하위 조직이 없습니다"}
+        </p>
       </div>
 
+      {/* Summary cards */}
+      {items.length > 0 && (
+        <div className="grid grid-cols-3 gap-4">
+          <Card className="bg-card/50 border-border/50">
+            <CardContent className="pt-4 pb-4">
+              <div className="text-2xl font-bold text-foreground">{items.length}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">전체 {childRoleLabel || "하위"}</div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card/50 border-border/50">
+            <CardContent className="pt-4 pb-4">
+              <div className="text-2xl font-bold text-primary">{setCount}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">수수료 설정 완료</div>
+            </CardContent>
+          </Card>
+          <Card className="bg-card/50 border-border/50">
+            <CardContent className="pt-4 pb-4">
+              <div className={`text-2xl font-bold ${unsetCount > 0 ? "text-orange-400" : "text-muted-foreground"}`}>
+                {unsetCount}
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">미설정</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Fee list */}
       <Card className="bg-card/50 border-border/50">
+        {/* Column header */}
+        <div className="flex items-center h-9 border-b border-border/50 bg-muted/20 text-xs text-muted-foreground font-medium px-4 gap-3">
+          <div className="w-[160px] shrink-0">역할</div>
+          <div className="flex-1 min-w-0">이름 (아이디)</div>
+          <div className="w-40 shrink-0">입금 수수료</div>
+          <div className="w-40 shrink-0">출금 수수료</div>
+          <div className="w-14 shrink-0" />
+        </div>
+
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+            <div className="flex justify-center py-16">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="flex flex-col items-center py-16 gap-3 text-muted-foreground">
+              <AlertCircle className="h-8 w-8 opacity-40" />
+              <div className="text-sm">
+                {myRole === "store"
+                  ? "매장 계정은 하위 조직이 없습니다"
+                  : "직속 하위 조직이 없습니다"}
+              </div>
+            </div>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow className="border-border/50 hover:bg-transparent">
-                  <TableHead>유저명</TableHead>
-                  <TableHead>역할</TableHead>
-                  <TableHead className="text-right">입금 수수료</TableHead>
-                  <TableHead className="text-right">출금 수수료</TableHead>
-                  <TableHead>등록일</TableHead>
-                  <TableHead>수정</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data?.map((fc) => (
-                  <TableRow key={fc.id} className="border-border/30">
-                    <TableCell className="font-medium">{fc.userName}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={`text-xs ${ROLE_COLORS[fc.role] ?? ""}`}>{ROLE_LABELS[fc.role] ?? fc.role}</Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="font-mono text-primary">{fc.depositFee}%</span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="font-mono text-primary">{fc.withdrawalFee}%</span>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(fc.createdAt)}</TableCell>
-                    <TableCell>
-                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => openEdit(fc)}>
-                        <Pencil className="h-3 w-3 mr-1" />수정
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {data?.length === 0 && (
-                  <TableRow><TableCell colSpan={6} className="text-center py-10 text-muted-foreground">수수료 설정이 없습니다</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
+            <div>
+              {items.map((item) => (
+                <FeeRow
+                  key={item.userId}
+                  item={item}
+                  onSave={handleSave}
+                  isSaving={savingId === item.userId}
+                />
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>
-
-      {/* Edit Dialog */}
-      <Dialog open={!!editTarget} onOpenChange={(o) => !o && setEditTarget(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{editTarget?.userName} 수수료 수정</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>입금 수수료 (%)</Label>
-              <Input type="number" step="0.01" min="0" max="100" value={depositFee} onChange={(e) => setDepositFee(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label>출금 수수료 (%)</Label>
-              <Input type="number" step="0.01" min="0" max="100" value={withdrawalFee} onChange={(e) => setWithdrawalFee(e.target.value)} />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditTarget(null)}>취소</Button>
-            <Button onClick={handleUpdate} disabled={update.isPending} className="bg-primary text-black hover:bg-primary/90">
-              {update.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}저장
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Create Dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>수수료 등록</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div className="space-y-2">
-              <Label>유저 ID</Label>
-              <Input type="number" placeholder="유저 ID 입력" value={newUserId} onChange={(e) => setNewUserId(e.target.value)} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>입금 수수료 (%)</Label>
-                <Input type="number" step="0.01" min="0" max="100" value={depositFee} onChange={(e) => setDepositFee(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>출금 수수료 (%)</Label>
-                <Input type="number" step="0.01" min="0" max="100" value={withdrawalFee} onChange={(e) => setWithdrawalFee(e.target.value)} />
-              </div>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCreateOpen(false)}>취소</Button>
-            <Button onClick={handleCreate} disabled={create.isPending} className="bg-primary text-black hover:bg-primary/90">
-              {create.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}등록
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

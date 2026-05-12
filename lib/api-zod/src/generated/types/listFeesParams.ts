@@ -10,5 +10,5 @@ export type ListFeesParams = {
   /**
    * @nullable
    */
-  userId?: number | null;
+  parentId?: number | null;
 };

@@ -19,6 +19,7 @@ export * from "./dailyStatistic";
 export * from "./feeConfig";
 export * from "./feeConfigInput";
 export * from "./feeConfigUpdate";
+export * from "./feeListItem";
 export * from "./getDailyStatisticsParams";
 export * from "./healthStatus";
 export * from "./listBalanceRecordsParams";
