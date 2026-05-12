@@ -75,7 +75,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/transactions", label: "입출금 내역", icon: ArrowRightLeft },
     { href: "/balances", label: "충전금액 관리", icon: Wallet },
     { href: "/members", label: "회원 관리", icon: Users },
-    { href: "/users", label: "유저 관리", icon: ShieldCheck },
+    { href: "/users", label: "하부 조직 관리", icon: ShieldCheck },
     { href: "/fees", label: "수수료 설정", icon: Receipt },
     { href: "/statistics", label: "일자별 통계", icon: BarChart3 },
     { href: "/notices", label: "공지사항", icon: Bell },
