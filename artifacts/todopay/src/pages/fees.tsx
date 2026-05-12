@@ -70,105 +70,112 @@ function FeeRow({
     setEditing(false);
   };
 
-  return (
-    <div className="group flex items-center gap-3 px-4 py-3 border-b border-border/20 hover:bg-white/[0.02] last:border-b-0">
-      {/* Role icon + badge */}
-      <div className="flex items-center gap-2 w-[160px] shrink-0">
-        <div className={`h-7 w-7 rounded border flex items-center justify-center shrink-0 ${ROLE_COLORS[item.role] ?? ""}`}>
-          <Icon className="h-3.5 w-3.5" />
-        </div>
-        <Badge variant="outline" className={`text-[10px] font-medium px-1.5 ${ROLE_COLORS[item.role] ?? ""}`}>
-          {ROLE_LABELS[item.role] ?? item.role}
-        </Badge>
-      </div>
-
-      {/* Name + loginId */}
-      <div className="flex-1 min-w-0">
-        <span className="font-semibold text-sm text-foreground">{item.userName}</span>
-        <span className="text-xs text-muted-foreground font-mono ml-2">({item.userLoginId})</span>
-      </div>
-
-      {/* Fee values or inputs */}
-      {editing ? (
-        <>
-          <div className="flex items-center gap-1.5 w-40 shrink-0">
-            <span className="text-xs text-muted-foreground w-14 shrink-0">입금 수수료</span>
-            <div className="flex items-center gap-1">
-              <Input
-                type="number" step="0.01" min="0" max="100"
-                value={vals.deposit}
-                onChange={(e) => setVals(p => ({ ...p, deposit: e.target.value }))}
-                className="h-7 w-20 text-xs text-right"
-                autoFocus
-              />
-              <span className="text-xs text-muted-foreground">%</span>
-            </div>
+  if (editing) {
+    return (
+      <div className="border-b border-border/20 p-3 space-y-3 bg-muted/10">
+        {/* Header row */}
+        <div className="flex items-center gap-2">
+          <div className={`h-7 w-7 rounded border flex items-center justify-center shrink-0 ${ROLE_COLORS[item.role] ?? ""}`}>
+            <Icon className="h-3.5 w-3.5" />
           </div>
-          <div className="flex items-center gap-1.5 w-40 shrink-0">
-            <span className="text-xs text-muted-foreground w-14 shrink-0">출금 수수료</span>
-            <div className="flex items-center gap-1">
-              <Input
-                type="number" step="0.01" min="0" max="100"
-                value={vals.withdrawal}
-                onChange={(e) => setVals(p => ({ ...p, withdrawal: e.target.value }))}
-                className="h-7 w-20 text-xs text-right"
-              />
-              <span className="text-xs text-muted-foreground">%</span>
-            </div>
+          <div className="flex-1 min-w-0">
+            <span className="font-semibold text-sm">{item.userName}</span>
+            <span className="text-xs text-muted-foreground font-mono ml-1.5 hidden sm:inline">({item.userLoginId})</span>
           </div>
-          <div className="flex gap-1 shrink-0">
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="h-7 w-7 rounded flex items-center justify-center bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50"
-            >
+          <div className="flex gap-1">
+            <button onClick={handleSave} disabled={isSaving}
+              className="h-7 w-7 rounded flex items-center justify-center bg-primary/20 text-primary hover:bg-primary/30 transition-colors disabled:opacity-50">
               {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
             </button>
-            <button
-              onClick={handleCancel}
-              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-white/10 transition-colors"
-            >
+            <button onClick={handleCancel}
+              className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground hover:bg-white/10 transition-colors">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-        </>
-      ) : (
-        <>
-          <div className="w-40 shrink-0 flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">입금</span>
-            {hasConfig ? (
-              <span className="font-mono text-sm text-primary font-semibold">{item.depositFee}%</span>
-            ) : (
-              <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground">미설정</Badge>
-            )}
+        </div>
+        {/* Input row */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">입금 수수료 (%)</label>
+            <div className="flex items-center gap-1">
+              <Input type="number" step="0.01" min="0" max="100"
+                value={vals.deposit}
+                onChange={(e) => setVals(p => ({ ...p, deposit: e.target.value }))}
+                className="h-8 text-sm text-right" autoFocus />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
           </div>
-          <div className="w-40 shrink-0 flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">출금</span>
-            {hasConfig ? (
-              <span className="font-mono text-sm text-primary font-semibold">{item.withdrawalFee}%</span>
-            ) : (
-              <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground">미설정</Badge>
-            )}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">출금 수수료 (%)</label>
+            <div className="flex items-center gap-1">
+              <Input type="number" step="0.01" min="0" max="100"
+                value={vals.withdrawal}
+                onChange={(e) => setVals(p => ({ ...p, withdrawal: e.target.value }))}
+                className="h-8 text-sm text-right" />
+              <span className="text-xs text-muted-foreground">%</span>
+            </div>
           </div>
-          <button
-            onClick={() => {
-              setVals({
-                deposit: item.depositFee != null ? String(item.depositFee) : "0",
-                withdrawal: item.withdrawalFee != null ? String(item.withdrawalFee) : "0",
-              });
-              setEditing(true);
-            }}
-            className={`h-7 px-2.5 rounded flex items-center gap-1.5 text-xs transition-colors shrink-0 ${
-              hasConfig
-                ? "text-muted-foreground hover:text-foreground hover:bg-white/10 opacity-0 group-hover:opacity-100"
-                : "border border-primary/40 text-primary hover:bg-primary/10"
-            }`}
-          >
-            <Pencil className="h-3 w-3" />
-            {hasConfig ? "수정" : "설정"}
-          </button>
-        </>
-      )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group flex items-center gap-2 px-3 py-3 border-b border-border/20 hover:bg-white/[0.02] last:border-b-0">
+      {/* Role icon */}
+      <div className={`h-7 w-7 rounded border flex items-center justify-center shrink-0 ${ROLE_COLORS[item.role] ?? ""}`}>
+        <Icon className="h-3.5 w-3.5" />
+      </div>
+
+      {/* Badge — hide on very small screens */}
+      <Badge variant="outline" className={`text-[10px] font-medium px-1.5 hidden sm:flex shrink-0 ${ROLE_COLORS[item.role] ?? ""}`}>
+        {ROLE_LABELS[item.role] ?? item.role}
+      </Badge>
+
+      {/* Name */}
+      <div className="flex-1 min-w-0">
+        <span className="font-semibold text-sm text-foreground">{item.userName}</span>
+        <span className="text-xs text-muted-foreground font-mono ml-1.5 hidden sm:inline">({item.userLoginId})</span>
+      </div>
+
+      {/* Fee values */}
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground hidden md:inline">입금</span>
+          {hasConfig ? (
+            <span className="font-mono text-sm text-primary font-semibold">{item.depositFee}%</span>
+          ) : (
+            <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground">미설정</Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-muted-foreground hidden md:inline">출금</span>
+          {hasConfig ? (
+            <span className="font-mono text-sm text-primary font-semibold">{item.withdrawalFee}%</span>
+          ) : (
+            <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground">미설정</Badge>
+          )}
+        </div>
+      </div>
+
+      {/* Edit button */}
+      <button
+        onClick={() => {
+          setVals({
+            deposit: item.depositFee != null ? String(item.depositFee) : "0",
+            withdrawal: item.withdrawalFee != null ? String(item.withdrawalFee) : "0",
+          });
+          setEditing(true);
+        }}
+        className={`h-7 px-2 rounded flex items-center gap-1 text-xs transition-colors shrink-0 ${
+          hasConfig
+            ? "text-muted-foreground hover:text-foreground hover:bg-white/10 opacity-0 group-hover:opacity-100 md:opacity-0 md:group-hover:opacity-100"
+            : "border border-primary/40 text-primary hover:bg-primary/10 opacity-100"
+        }`}
+      >
+        <Pencil className="h-3 w-3" />
+        <span className="hidden sm:inline">{hasConfig ? "수정" : "설정"}</span>
+      </button>
     </div>
   );
 }
@@ -214,10 +221,10 @@ export default function Fees() {
   const unsetCount = items.length - setCount;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">수수료 설정</h1>
-        <p className="text-muted-foreground mt-1">
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">수수료 설정</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
           {childRoleLabel
             ? `직속 ${childRoleLabel} 별 입금·출금 수수료율을 설정합니다 (%)`
             : "하위 조직이 없습니다"}
@@ -226,22 +233,22 @@ export default function Fees() {
 
       {/* Summary cards */}
       {items.length > 0 && (
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-3 gap-3">
           <Card className="bg-card/50 border-border/50">
-            <CardContent className="pt-4 pb-4">
-              <div className="text-2xl font-bold text-foreground">{items.length}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">전체 {childRoleLabel || "하위"}</div>
+            <CardContent className="pt-3 pb-3 px-3 md:pt-4 md:pb-4 md:px-4">
+              <div className="text-xl md:text-2xl font-bold text-foreground">{items.length}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">전체</div>
             </CardContent>
           </Card>
           <Card className="bg-card/50 border-border/50">
-            <CardContent className="pt-4 pb-4">
-              <div className="text-2xl font-bold text-primary">{setCount}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">수수료 설정 완료</div>
+            <CardContent className="pt-3 pb-3 px-3 md:pt-4 md:pb-4 md:px-4">
+              <div className="text-xl md:text-2xl font-bold text-primary">{setCount}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">설정 완료</div>
             </CardContent>
           </Card>
           <Card className="bg-card/50 border-border/50">
-            <CardContent className="pt-4 pb-4">
-              <div className={`text-2xl font-bold ${unsetCount > 0 ? "text-orange-400" : "text-muted-foreground"}`}>
+            <CardContent className="pt-3 pb-3 px-3 md:pt-4 md:pb-4 md:px-4">
+              <div className={`text-xl md:text-2xl font-bold ${unsetCount > 0 ? "text-orange-400" : "text-muted-foreground"}`}>
                 {unsetCount}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">미설정</div>
@@ -252,13 +259,12 @@ export default function Fees() {
 
       {/* Fee list */}
       <Card className="bg-card/50 border-border/50">
-        {/* Column header */}
-        <div className="flex items-center h-9 border-b border-border/50 bg-muted/20 text-xs text-muted-foreground font-medium px-4 gap-3">
-          <div className="w-[160px] shrink-0">역할</div>
+        {/* Column header — desktop only */}
+        <div className="hidden md:flex items-center h-9 border-b border-border/50 bg-muted/20 text-xs text-muted-foreground font-medium px-3 gap-2">
+          <div className="w-7 shrink-0" />
+          <div className="w-[80px] shrink-0">역할</div>
           <div className="flex-1 min-w-0">이름 (아이디)</div>
-          <div className="w-40 shrink-0">입금 수수료</div>
-          <div className="w-40 shrink-0">출금 수수료</div>
-          <div className="w-14 shrink-0" />
+          <div className="w-32 shrink-0 text-right pr-8">입금 · 출금 수수료</div>
         </div>
 
         <CardContent className="p-0">
@@ -270,9 +276,7 @@ export default function Fees() {
             <div className="flex flex-col items-center py-16 gap-3 text-muted-foreground">
               <AlertCircle className="h-8 w-8 opacity-40" />
               <div className="text-sm">
-                {myRole === "store"
-                  ? "매장 계정은 하위 조직이 없습니다"
-                  : "직속 하위 조직이 없습니다"}
+                {myRole === "store" ? "매장 계정은 하위 조직이 없습니다" : "직속 하위 조직이 없습니다"}
               </div>
             </div>
           ) : (

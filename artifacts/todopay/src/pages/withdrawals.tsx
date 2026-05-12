@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatMoney, formatDate } from "@/lib/format";
-import { CheckCircle, XCircle, Clock, Loader2, Search } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Search } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const APPROVAL_LABELS: Record<string, string> = {
@@ -100,12 +100,12 @@ export default function Withdrawals() {
   };
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">출금 관리</h1>
+    <div className="space-y-5">
+      <h1 className="text-2xl md:text-3xl font-bold tracking-tight">출금 관리</h1>
 
       {/* Summary */}
       {summary && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
           {[
             { label: "대기 건수", value: `${summary.pendingCount}건`, color: "text-yellow-400" },
             { label: "대기 금액", value: formatMoney(summary.pendingAmount), color: "text-yellow-400" },
@@ -114,8 +114,8 @@ export default function Withdrawals() {
             { label: "오늘 출금", value: formatMoney(summary.todayWithdrawn), color: "text-primary" },
           ].map((s) => (
             <Card key={s.label} className="bg-card/50 border-border/50">
-              <CardHeader className="pb-1 pt-4 px-4"><CardTitle className="text-xs text-muted-foreground">{s.label}</CardTitle></CardHeader>
-              <CardContent className="px-4 pb-4"><p className={`text-lg font-bold ${s.color}`}>{s.value}</p></CardContent>
+              <CardHeader className="pb-1 pt-3 px-3"><CardTitle className="text-xs text-muted-foreground">{s.label}</CardTitle></CardHeader>
+              <CardContent className="px-3 pb-3"><p className={`text-base md:text-lg font-bold ${s.color}`}>{s.value}</p></CardContent>
             </Card>
           ))}
         </div>
@@ -124,12 +124,12 @@ export default function Withdrawals() {
       {/* Filters */}
       <Card className="bg-card/50 border-border/50">
         <CardContent className="pt-4 flex flex-wrap gap-3">
-          <div className="relative flex-1 min-w-[180px]">
+          <div className="relative flex-1 min-w-[160px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input placeholder="추적번호 / 회원명 검색" className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <Select value={approvalStatus} onValueChange={(v) => { setApprovalStatus(v); setPage(1); }}>
-            <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">전체 상태</SelectItem>
               <SelectItem value="pending">대기</SelectItem>
@@ -140,8 +140,73 @@ export default function Withdrawals() {
         </CardContent>
       </Card>
 
-      {/* Table */}
-      <Card className="bg-card/50 border-border/50">
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {isLoading ? (
+          <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : data?.items.length === 0 ? (
+          <Card className="bg-card/50 border-border/50">
+            <CardContent className="py-10 text-center text-muted-foreground text-sm">출금 내역이 없습니다</CardContent>
+          </Card>
+        ) : data?.items.map((w) => (
+          <Card key={w.id} className="bg-card/50 border-border/50">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-mono text-xs text-muted-foreground">{w.trackingNumber}</p>
+                  <p className="font-semibold mt-0.5">{w.memberName ?? "-"}</p>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Badge variant="outline" className={`text-xs ${APPROVAL_COLORS[w.approvalStatus] ?? ""}`}>
+                    {APPROVAL_LABELS[w.approvalStatus] ?? w.approvalStatus}
+                  </Badge>
+                  <Badge variant="outline" className={`text-xs ${PAID_COLORS[w.withdrawalStatus] ?? ""}`}>
+                    {w.withdrawalStatus === "paid" ? "지급" : "미지급"}
+                  </Badge>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">은행/계좌</p>
+                  <p className="font-medium">{w.accountBank}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{w.accountNumber}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">예금주</p>
+                  <p>{w.accountHolder}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">금액</p>
+                  <p className="font-bold text-primary">{formatMoney(w.amount)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">수수료</p>
+                  <p className="text-muted-foreground">{formatMoney(w.fee)}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-border/30">
+                <p className="text-xs text-muted-foreground">{formatDate(w.createdAt)}</p>
+                {w.approvalStatus === "pending" && (
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" className="h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10" onClick={() => handleApprove(w.id)}>
+                      <CheckCircle className="h-3 w-3 mr-1" />승인
+                    </Button>
+                    <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => { setRejectDialogId(w.id); setRejectReason(""); }}>
+                      <XCircle className="h-3 w-3 mr-1" />반려
+                    </Button>
+                  </div>
+                )}
+                {w.approvalStatus === "rejected" && w.rejectReason && (
+                  <span className="text-xs text-muted-foreground">{w.rejectReason}</span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <Card className="hidden md:block bg-card/50 border-border/50">
         <CardContent className="p-0">
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>

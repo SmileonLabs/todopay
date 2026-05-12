@@ -130,18 +130,18 @@ function NodeRow({
     <>
       <div className="group flex items-center min-h-[44px] hover:bg-white/[0.03] border-b border-border/20 relative">
         {/* Tree indent lines */}
-        <div className="flex shrink-0" style={{ width: depth * 24 }}>
+        <div className="flex shrink-0" style={{ width: depth * 20 }}>
           {Array.from({ length: depth }).map((_, i) => (
-            <div key={i} className="w-6 shrink-0 relative flex justify-center">
+            <div key={i} className="w-5 shrink-0 relative flex justify-center">
               {!ancestorIsLast[i] && (
                 <div className={`absolute top-0 bottom-0 left-1/2 border-l border-dashed ${ROLE_LINE_COLORS[node.role] ?? "border-border/30"} opacity-40`} />
               )}
             </div>
           ))}
           {depth > 0 && (
-            <div className="w-6 shrink-0 relative flex items-center justify-center">
+            <div className="w-5 shrink-0 relative flex items-center justify-center">
               <div className={`absolute top-0 ${isLast ? "bottom-1/2" : "bottom-0"} left-1/2 border-l border-dashed ${ROLE_LINE_COLORS[node.role] ?? "border-border/30"} opacity-40`} />
-              <div className={`absolute top-1/2 left-1/2 w-3 border-t border-dashed ${ROLE_LINE_COLORS[node.role] ?? "border-border/30"} opacity-40`} />
+              <div className={`absolute top-1/2 left-1/2 w-2.5 border-t border-dashed ${ROLE_LINE_COLORS[node.role] ?? "border-border/30"} opacity-40`} />
             </div>
           )}
         </div>
@@ -159,27 +159,26 @@ function NodeRow({
         </div>
 
         {/* Role icon + badge */}
-        <div className="w-[130px] shrink-0 flex items-center gap-1.5 pr-2">
+        <div className="w-[110px] md:w-[130px] shrink-0 flex items-center gap-1 pr-2">
           <div className={`h-6 w-6 rounded flex items-center justify-center ${ROLE_COLORS[node.role] ?? ""} border shrink-0`}>
             <Icon className="h-3 w-3" />
           </div>
-          <Badge variant="outline" className={`text-[10px] font-medium px-1.5 py-0 ${ROLE_COLORS[node.role] ?? ""}`}>
+          <Badge variant="outline" className={`text-[10px] font-medium px-1.5 py-0 hidden sm:flex ${ROLE_COLORS[node.role] ?? ""}`}>
             {ROLE_LABELS[node.role] ?? node.role}
           </Badge>
         </div>
 
         {/* Name + loginId + child count */}
-        <div className="flex-1 min-w-0 flex items-center gap-2 pr-3">
+        <div className="flex-1 min-w-0 flex items-center gap-1.5 pr-2">
           <span className="font-semibold text-sm text-foreground truncate">{node.name}</span>
-          <span className="text-xs text-muted-foreground font-mono shrink-0">({node.loginId})</span>
+          <span className="text-xs text-muted-foreground font-mono shrink-0 hidden sm:inline">({node.loginId})</span>
           {desc > 0 && (
-            <span className="text-[10px] text-muted-foreground/50 shrink-0">{desc}개 하위</span>
+            <span className="text-[10px] text-muted-foreground/50 shrink-0 hidden md:inline">{desc}개 하위</span>
           )}
-          {/* Quick add child button — always visible when canAddChild */}
           {canAddChild && (
             <button
               onClick={() => onAddChild(node)}
-              className="ml-1 h-5 w-5 rounded border border-dashed border-primary/40 flex items-center justify-center text-primary/60 hover:text-primary hover:border-primary hover:bg-primary/10 transition-colors shrink-0"
+              className="ml-0.5 h-5 w-5 rounded border border-dashed border-primary/40 flex items-center justify-center text-primary/60 hover:text-primary hover:border-primary hover:bg-primary/10 transition-colors shrink-0"
               title={`${ROLE_LABELS[childRole!]} 바로 추가`}
             >
               <Plus className="h-3 w-3" />
@@ -187,8 +186,8 @@ function NodeRow({
           )}
         </div>
 
-        {/* Permission */}
-        <div className="w-28 shrink-0 pr-3">
+        {/* Permission — hidden on mobile */}
+        <div className="hidden md:block w-28 shrink-0 pr-3">
           {node.role !== "superadmin" ? (
             <Select value={node.permission} onValueChange={(v) => onPermChange(node.id, v)}>
               <SelectTrigger className="h-7 text-xs border-border/40"><SelectValue /></SelectTrigger>
@@ -204,23 +203,23 @@ function NodeRow({
         </div>
 
         {/* Active */}
-        <div className="w-16 shrink-0 flex items-center pr-3">
+        <div className="w-14 md:w-16 shrink-0 flex items-center pr-2">
           <Switch checked={node.isActive} onCheckedChange={() => onToggle(node.id, node.isActive)}
             disabled={node.role === "superadmin"} className="scale-75 origin-left" />
-          <span className={`text-[10px] ml-1 ${node.isActive ? "text-primary" : "text-muted-foreground"}`}>
+          <span className={`text-[10px] ml-0.5 hidden sm:inline ${node.isActive ? "text-primary" : "text-muted-foreground"}`}>
             {node.isActive ? "활성" : "비활"}
           </span>
         </div>
 
-        {/* OTP */}
-        <div className="w-14 shrink-0 pr-3">
+        {/* OTP — hidden on small */}
+        <div className="hidden sm:block w-12 shrink-0 pr-2">
           <Badge variant="outline" className={`text-[10px] px-1.5 py-0 ${node.useOtp ? "border-primary/30 text-primary" : "border-border/30 text-muted-foreground"}`}>
             {node.useOtp ? "OTP" : "-"}
           </Badge>
         </div>
 
-        {/* Actions (hover) */}
-        <div className="w-16 shrink-0 flex items-center gap-1 pr-3 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Actions — always visible on mobile, hover on desktop */}
+        <div className="w-14 shrink-0 flex items-center gap-1 pr-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
           {node.role !== "superadmin" && (
             <>
               <button onClick={() => onResetPw(node.id)}
@@ -349,7 +348,7 @@ export default function Users() {
       payload.parentId = form.parentId;
     }
 
-    create.mutate({ data: payload as Parameters<typeof create.mutate>[0]["data"] }, {
+    create.mutate({ data: payload as unknown as Parameters<typeof create.mutate>[0]["data"] }, {
       onSuccess: () => {
         toast({ title: "등록 완료" });
         closeCreate();
@@ -396,59 +395,62 @@ export default function Users() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">하부 조직 관리</h1>
-          <p className="text-sm text-muted-foreground mt-1">전체 {totalCount}명 · 조직 계층 구조</p>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">하부 조직 관리</h1>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1">전체 {totalCount}명 · 조직 계층 구조</p>
         </div>
         {creatableRoles.length > 0 && (
-          <Button onClick={openCreate} className="bg-primary text-black hover:bg-primary/90">
-            <Plus className="h-4 w-4 mr-2" />조직원 등록
+          <Button onClick={openCreate} className="bg-primary text-black hover:bg-primary/90 shrink-0">
+            <Plus className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">조직원 등록</span>
           </Button>
         )}
       </div>
 
       <div className="rounded-lg border border-border/50 bg-card/50 overflow-hidden">
-        <div className="flex items-center h-9 border-b border-border/50 bg-muted/20 text-xs text-muted-foreground font-medium px-3">
-          <div style={{ width: 30 }} className="shrink-0" />
-          <div className="w-[130px] shrink-0">역할</div>
-          <div className="flex-1 min-w-0">이름 (아이디)</div>
-          <div className="w-28 shrink-0">권한</div>
-          <div className="w-16 shrink-0">상태</div>
-          <div className="w-14 shrink-0">OTP</div>
-          <div className="w-16 shrink-0">처리</div>
+        {/* Column header */}
+        <div className="flex items-center h-9 border-b border-border/50 bg-muted/20 text-xs text-muted-foreground font-medium px-2 overflow-x-auto">
+          <div style={{ width: 26 }} className="shrink-0" />
+          <div className="w-[110px] md:w-[130px] shrink-0">역할</div>
+          <div className="flex-1 min-w-[120px]">이름 (아이디)</div>
+          <div className="hidden md:block w-28 shrink-0">권한</div>
+          <div className="w-14 md:w-16 shrink-0">상태</div>
+          <div className="hidden sm:block w-12 shrink-0">OTP</div>
+          <div className="w-14 shrink-0">처리</div>
         </div>
 
-        {isLoading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : tree.length === 0 ? (
-          <div className="text-center py-16 text-muted-foreground text-sm">조직원이 없습니다</div>
-        ) : (
-          <div>
-            {tree.map((node, idx) => (
-              <NodeRow
-                key={node.id}
-                node={node}
-                depth={0}
-                isLast={idx === tree.length - 1}
-                ancestorIsLast={[]}
-                myRole={myRole}
-                onResetPw={(id) => { setResetId(id); setNewPassword(""); }}
-                onDelete={handleDelete}
-                onPermChange={handlePermChange}
-                onToggle={handleToggle}
-                onAddChild={openCreateForChild}
-              />
-            ))}
-          </div>
-        )}
+        <div className="overflow-x-auto">
+          {isLoading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : tree.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground text-sm">조직원이 없습니다</div>
+          ) : (
+            <div className="min-w-[360px]">
+              {tree.map((node, idx) => (
+                <NodeRow
+                  key={node.id}
+                  node={node}
+                  depth={0}
+                  isLast={idx === tree.length - 1}
+                  ancestorIsLast={[]}
+                  myRole={myRole}
+                  onResetPw={(id) => { setResetId(id); setNewPassword(""); }}
+                  onDelete={handleDelete}
+                  onPermChange={handlePermChange}
+                  onToggle={handleToggle}
+                  onAddChild={openCreateForChild}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Reset Password Dialog */}
       <Dialog open={!!resetId} onOpenChange={(o) => !o && setResetId(null)}>
-        <DialogContent>
+        <DialogContent className="mx-4 sm:mx-auto">
           <DialogHeader><DialogTitle>비밀번호 초기화</DialogTitle></DialogHeader>
           <div className="space-y-2">
             <Label className="text-sm">새 비밀번호</Label>
@@ -466,7 +468,7 @@ export default function Users() {
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={(o) => { if (!o) closeCreate(); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md mx-4 sm:mx-auto">
           <DialogHeader>
             <DialogTitle>
               {lockedParent
@@ -538,52 +540,37 @@ export default function Users() {
               </div>
             </div>
 
-            {/* Locked parent info */}
             {lockedParent && (
               <div className="rounded-md border px-3 py-2.5 flex items-center gap-2">
                 <div className={`h-6 w-6 rounded border flex items-center justify-center shrink-0 ${ROLE_COLORS[lockedParent.role] ?? ""}`}>
                   {React.createElement(ROLE_ICONS[lockedParent.role] ?? Shield, { className: "h-3 w-3" })}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs text-muted-foreground">상위 {ROLE_LABELS[lockedParent.role]}</div>
-                  <div className="text-sm font-medium text-foreground truncate">
-                    {lockedParent.name}
-                    <span className="text-muted-foreground font-normal ml-1.5 font-mono text-xs">({lockedParent.loginId})</span>
-                  </div>
+                  <p className="text-xs text-muted-foreground">{ROLE_LABELS[lockedParent.role]} (상위 조직)</p>
+                  <p className="text-sm font-medium truncate">{lockedParent.name}</p>
+                  <p className="text-xs font-mono text-muted-foreground">{lockedParent.loginId}</p>
                 </div>
-                <Badge variant="outline" className="text-[10px] shrink-0 border-primary/30 text-primary">자동 지정</Badge>
               </div>
             )}
 
-            {/* Free parent select */}
-            {needsParentSelect && requiredParentRole && (
+            {needsParentSelect && (
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">상위 {ROLE_LABELS[requiredParentRole]} 선택 *</Label>
-                <Select value={form.parentId?.toString() ?? ""}
-                  onValueChange={(v) => setForm(p => ({ ...p, parentId: parseInt(v, 10) }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={`${ROLE_LABELS[requiredParentRole]} 선택`} />
-                  </SelectTrigger>
+                <Label className="text-xs text-muted-foreground">
+                  상위 {ROLE_LABELS[requiredParentRole!]} 선택 *
+                </Label>
+                <Select
+                  value={form.parentId ? String(form.parentId) : ""}
+                  onValueChange={(v) => setForm(p => ({ ...p, parentId: Number(v) }))}
+                >
+                  <SelectTrigger><SelectValue placeholder="선택..." /></SelectTrigger>
                   <SelectContent>
-                    {parentList?.items.map(p => (
-                      <SelectItem key={p.id} value={p.id.toString()}>
-                        {p.name} <span className="text-muted-foreground ml-1">({p.loginId})</span>
+                    {(parentList?.items ?? []).map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.name} ({u.loginId})
                       </SelectItem>
                     ))}
-                    {!parentList?.items.length && (
-                      <div className="px-3 py-2 text-xs text-muted-foreground">
-                        등록된 {ROLE_LABELS[requiredParentRole]}이 없습니다
-                      </div>
-                    )}
                   </SelectContent>
                 </Select>
-              </div>
-            )}
-
-            {/* Caller is parent (own account auto-assign) */}
-            {callerIsParent && !lockedParent && (
-              <div className="rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-xs text-muted-foreground">
-                상위: <span className="text-foreground font-medium">{user?.name} ({user?.loginId})</span> — 자동 지정
               </div>
             )}
           </div>

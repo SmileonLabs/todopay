@@ -18,11 +18,11 @@ export default function Dashboard() {
 
   if (isLoading || !stats) {
     return (
-      <div className="space-y-6 animate-pulse">
-        <div className="h-8 w-48 bg-muted rounded" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="space-y-5 animate-pulse">
+        <div className="h-7 w-40 bg-muted rounded" />
+        <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
           {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-            <div key={i} className="h-32 bg-muted rounded-lg border border-border" />
+            <div key={i} className="h-24 md:h-28 bg-muted rounded-lg border border-border" />
           ))}
         </div>
       </div>
@@ -89,25 +89,25 @@ export default function Dashboard() {
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">대시보드</h1>
-        <p className="text-muted-foreground mt-1">플랫폼 현황 및 일별 통계 요약</p>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">대시보드</h1>
+        <p className="text-muted-foreground mt-1 text-sm">플랫폼 현황 및 일별 통계 요약</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
         {statCards.map((card, i) => (
           <Card key={i} className="bg-card/50 border-border/50 hover:border-border transition-colors">
-            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+            <CardHeader className="flex flex-row items-center justify-between pb-2 pt-3 px-3 md:px-4 space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground leading-tight pr-1">
                 {card.title}
               </CardTitle>
-              <div className={`p-2 rounded-md ${card.bg}`}>
-                <card.icon className={`h-4 w-4 ${card.color}`} />
+              <div className={`p-1.5 md:p-2 rounded-md ${card.bg} shrink-0`}>
+                <card.icon className={`h-3.5 w-3.5 md:h-4 md:w-4 ${card.color}`} />
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold tracking-tight">{card.value}</div>
+            <CardContent className="px-3 md:px-4 pb-3">
+              <div className="text-lg md:text-2xl font-bold tracking-tight break-all">{card.value}</div>
             </CardContent>
           </Card>
         ))}

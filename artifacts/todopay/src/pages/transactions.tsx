@@ -73,43 +73,70 @@ function PendingDeposits() {
         ) : items.length === 0 ? (
           <div className="text-center py-8 text-sm text-muted-foreground">대기 중인 입금 신청이 없습니다</div>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow className="border-border/50 hover:bg-transparent">
-                <TableHead>추적번호</TableHead>
-                <TableHead>회원명</TableHead>
-                <TableHead>출금계좌</TableHead>
-                <TableHead>입금계좌</TableHead>
-                <TableHead className="text-right">금액</TableHead>
-                <TableHead>신청일시</TableHead>
-                <TableHead className="text-center">처리</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
+          <>
+            {/* Mobile */}
+            <div className="md:hidden divide-y divide-border/30">
               {items.map((t) => (
-                <TableRow key={t.id} className="border-border/30">
-                  <TableCell className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</TableCell>
-                  <TableCell>{t.memberName ?? "-"}</TableCell>
-                  <TableCell className="font-mono text-xs">{t.fromAccount}</TableCell>
-                  <TableCell className="font-mono text-xs">{t.toAccount}</TableCell>
-                  <TableCell className="text-right font-bold text-primary">{formatMoney(t.amount)}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(t.createdAt)}</TableCell>
-                  <TableCell className="text-center">
-                    <Button
-                      size="sm"
-                      onClick={() => void handleConfirm(t.id)}
-                      disabled={confirmingId === t.id}
-                      className="bg-green-600 hover:bg-green-700 text-white h-7 text-xs px-3"
-                    >
-                      {confirmingId === t.id
-                        ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />확인 처리</>}
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                <div key={t.id} className="p-4 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</p>
+                      <p className="font-semibold mt-0.5">{t.memberName ?? "-"}</p>
+                      <p className="text-xs text-muted-foreground">{formatDate(t.createdAt)}</p>
+                    </div>
+                    <p className="font-bold text-primary text-lg">{formatMoney(t.amount)}</p>
+                  </div>
+                  <div className="text-xs text-muted-foreground font-mono flex gap-2 flex-wrap">
+                    <span>{t.fromAccount}</span>
+                    <span>→</span>
+                    <span>{t.toAccount}</span>
+                  </div>
+                  <Button onClick={() => void handleConfirm(t.id)} disabled={confirmingId === t.id}
+                    className="w-full bg-green-600 hover:bg-green-700 text-white h-8 text-xs">
+                    {confirmingId === t.id
+                      ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />확인 처리</>}
+                  </Button>
+                </div>
               ))}
-            </TableBody>
-          </Table>
+            </div>
+            {/* Desktop */}
+            <div className="hidden md:block">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-border/50 hover:bg-transparent">
+                    <TableHead>추적번호</TableHead>
+                    <TableHead>회원명</TableHead>
+                    <TableHead>출금계좌</TableHead>
+                    <TableHead>입금계좌</TableHead>
+                    <TableHead className="text-right">금액</TableHead>
+                    <TableHead>신청일시</TableHead>
+                    <TableHead className="text-center">처리</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((t) => (
+                    <TableRow key={t.id} className="border-border/30">
+                      <TableCell className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</TableCell>
+                      <TableCell>{t.memberName ?? "-"}</TableCell>
+                      <TableCell className="font-mono text-xs">{t.fromAccount}</TableCell>
+                      <TableCell className="font-mono text-xs">{t.toAccount}</TableCell>
+                      <TableCell className="text-right font-bold text-primary">{formatMoney(t.amount)}</TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(t.createdAt)}</TableCell>
+                      <TableCell className="text-center">
+                        <Button size="sm" onClick={() => void handleConfirm(t.id)} disabled={confirmingId === t.id}
+                          className="bg-green-600 hover:bg-green-700 text-white h-7 text-xs px-3">
+                          {confirmingId === t.id
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />확인 처리</>}
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
@@ -133,32 +160,80 @@ export default function Transactions() {
   });
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-3xl font-bold tracking-tight">입출금 내역</h1>
+    <div className="space-y-5">
+      <h1 className="text-2xl md:text-3xl font-bold tracking-tight">입출금 내역</h1>
 
       <PendingDeposits />
 
       <Card className="bg-card/50 border-border/50">
         <CardContent className="pt-4 flex flex-wrap gap-3">
-          <div className="relative flex-1 min-w-[180px]">
+          <div className="relative flex-1 min-w-[160px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input placeholder="추적번호 / 계좌 검색" className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <Select value={type} onValueChange={(v) => { setType(v); setPage(1); }}>
-            <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">전체</SelectItem>
               <SelectItem value="deposit">입금</SelectItem>
               <SelectItem value="withdrawal">출금</SelectItem>
             </SelectContent>
           </Select>
-          <Input type="date" className="w-40" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} />
-          <span className="self-center text-muted-foreground text-sm">~</span>
-          <Input type="date" className="w-40" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} />
+          <div className="flex items-center gap-2 flex-wrap">
+            <Input type="date" className="w-36 md:w-40" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} />
+            <span className="text-muted-foreground text-sm">~</span>
+            <Input type="date" className="w-36 md:w-40" value={endDate} onChange={(e) => { setEndDate(e.target.value); setPage(1); }} />
+          </div>
         </CardContent>
       </Card>
 
-      <Card className="bg-card/50 border-border/50">
+      {/* Mobile cards */}
+      <div className="md:hidden space-y-3">
+        {isLoading ? (
+          <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : data?.items.length === 0 ? (
+          <Card className="bg-card/50 border-border/50">
+            <CardContent className="py-10 text-center text-muted-foreground text-sm">거래 내역이 없습니다</CardContent>
+          </Card>
+        ) : data?.items.map((t) => (
+          <Card key={t.id} className="bg-card/50 border-border/50">
+            <CardContent className="p-4 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</p>
+                  <p className="font-semibold mt-0.5">{t.memberName ?? "-"}</p>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Badge variant="outline" className={`text-xs ${TYPE_COLORS[t.type] ?? ""}`}>
+                    {t.type === "deposit" ? "입금" : "출금"}
+                  </Badge>
+                  <Badge variant="outline" className={`text-xs ${STATUS_COLORS[t.status] ?? ""}`}>
+                    {t.status === "success" ? "성공" : t.status === "failed" ? "실패" : "대기"}
+                  </Badge>
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">원금</p>
+                  <p>{formatMoney(t.originalAmount)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">실금액</p>
+                  <p className="font-bold text-primary">{formatMoney(t.amount)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">수수료</p>
+                  <p className="text-muted-foreground">{formatMoney(t.fee)}</p>
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground font-mono">{formatDate(t.createdAt)}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <Card className="hidden md:block bg-card/50 border-border/50">
         <CardContent className="p-0">
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>

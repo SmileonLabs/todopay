@@ -68,13 +68,9 @@ export default function Members() {
 
   const handleCreate = () => {
     const payload: Record<string, string | null> = {
-      loginId: form.loginId,
-      password: form.password,
-      name: form.name,
-      phone: form.phone,
-      email: form.email || null,
-      storeCode: form.storeCode || null,
-      birthdate: form.birthdate || null,
+      loginId: form.loginId, password: form.password, name: form.name,
+      phone: form.phone, email: form.email || null,
+      storeCode: form.storeCode || null, birthdate: form.birthdate || null,
     };
     create.mutate({ data: payload as unknown as Parameters<typeof create.mutate>[0]["data"] }, {
       onSuccess: () => {
@@ -128,33 +124,88 @@ export default function Members() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-3xl font-bold tracking-tight">회원 관리</h1>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">회원 관리</h1>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleCopyLink} className="gap-2 text-xs">
+          <Button variant="outline" onClick={handleCopyLink} className="gap-2 text-xs h-9">
             {linkCopied ? <CopyCheck className="h-4 w-4 text-green-400" /> : <Link className="h-4 w-4" />}
-            가입 링크 복사
+            <span className="hidden sm:inline">가입 링크 복사</span>
+            <span className="sm:hidden">링크</span>
           </Button>
-          <Button onClick={() => setCreateOpen(true)} className="bg-primary text-black hover:bg-primary/90">
-            <Plus className="h-4 w-4 mr-2" />회원 등록
+          <Button onClick={() => setCreateOpen(true)} className="bg-primary text-black hover:bg-primary/90 h-9">
+            <Plus className="h-4 w-4 sm:mr-2" /><span className="hidden sm:inline">회원 등록</span>
           </Button>
         </div>
       </div>
 
       <Card className="bg-card/50 border-border/50">
         <CardContent className="pt-4 flex flex-wrap gap-3">
-          <div className="relative flex-1 min-w-[180px]">
+          <div className="relative flex-1 min-w-[160px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input placeholder="이름 / 아이디 / 전화번호 검색" className="pl-9" value={search}
               onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
           </div>
-          <Input placeholder="매장 코드" className="w-36" value={storeCode}
+          <Input placeholder="매장 코드" className="w-32" value={storeCode}
             onChange={(e) => { setStoreCode(e.target.value); setPage(1); }} />
         </CardContent>
       </Card>
 
-      <Card className="bg-card/50 border-border/50">
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {isLoading ? (
+          <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+        ) : data?.items.length === 0 ? (
+          <Card className="bg-card/50 border-border/50">
+            <CardContent className="py-10 text-center text-muted-foreground text-sm">회원이 없습니다</CardContent>
+          </Card>
+        ) : data?.items.map((m) => (
+          <Card key={m.id} className="bg-card/50 border-border/50">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-semibold">{m.name}</p>
+                  <p className="font-mono text-xs text-muted-foreground">{m.loginId}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{m.phone}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Switch checked={m.isActive} onCheckedChange={() => handleToggle(m.id, m.isActive)} />
+                  <Badge variant="outline" className={`text-xs ${m.isActive ? "border-green-500/30 text-green-400" : "border-slate-500/30 text-slate-400"}`}>
+                    {m.isActive ? "활성" : "비활"}
+                  </Badge>
+                </div>
+              </div>
+              {m.virtualAccountNumber ? (
+                <div className="flex items-center gap-1.5 text-xs bg-muted/30 rounded px-2 py-1.5">
+                  <CreditCard className="h-3 w-3 text-primary shrink-0" />
+                  <span className="font-medium text-muted-foreground">{m.virtualAccountBank}</span>
+                  <span className="font-mono text-foreground">{m.virtualAccountNumber}</span>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground bg-muted/30 rounded px-2 py-1.5">가상계좌 미발급</div>
+              )}
+              <div className="flex items-center justify-between pt-1 border-t border-border/30">
+                <div className="text-xs text-muted-foreground">
+                  {m.storeName ?? m.storeCode ?? "—"} · {formatDate(m.createdAt)}
+                </div>
+                <div className="flex gap-1">
+                  <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    title="가상계좌 재발급" onClick={() => handleReissue(m.id)} disabled={reissue.isPending}>
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-red-400"
+                    title="회원 삭제" onClick={() => setDeleteId(m.id)}>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Desktop table */}
+      <Card className="hidden md:block bg-card/50 border-border/50">
         <CardContent className="p-0 overflow-x-auto">
           {isLoading ? (
             <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
@@ -207,23 +258,12 @@ export default function Members() {
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(m.createdAt)}</TableCell>
                     <TableCell className="whitespace-nowrap">
                       <div className="flex gap-1">
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-muted-foreground hover:text-primary"
-                          title="가상계좌 재발급"
-                          onClick={() => handleReissue(m.id)}
-                          disabled={reissue.isPending}
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-primary"
+                          title="가상계좌 재발급" onClick={() => handleReissue(m.id)} disabled={reissue.isPending}>
                           <RefreshCw className="h-3.5 w-3.5" />
                         </Button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-muted-foreground hover:text-red-400"
-                          title="회원 삭제"
-                          onClick={() => setDeleteId(m.id)}
-                        >
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-muted-foreground hover:text-red-400"
+                          title="회원 삭제" onClick={() => setDeleteId(m.id)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
@@ -248,7 +288,7 @@ export default function Members() {
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md mx-4 sm:mx-auto">
           <DialogHeader><DialogTitle>회원 등록</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             {[
@@ -281,7 +321,7 @@ export default function Members() {
       </Dialog>
 
       <AlertDialog open={deleteId !== null} onOpenChange={(o) => { if (!o) setDeleteId(null); }}>
-        <AlertDialogContent>
+        <AlertDialogContent className="mx-4 sm:mx-auto">
           <AlertDialogHeader>
             <AlertDialogTitle>회원 삭제</AlertDialogTitle>
             <AlertDialogDescription>
@@ -290,11 +330,7 @@ export default function Members() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteLoading}>취소</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => void handleDelete()}
-              disabled={deleteLoading}
-              className="bg-red-600 hover:bg-red-700"
-            >
+            <AlertDialogAction onClick={() => void handleDelete()} disabled={deleteLoading} className="bg-red-600 hover:bg-red-700">
               {deleteLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}삭제
             </AlertDialogAction>
           </AlertDialogFooter>

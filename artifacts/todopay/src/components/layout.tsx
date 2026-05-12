@@ -17,6 +17,7 @@ import {
   LogOut,
   Menu,
   UserCog,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +43,17 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const { user, signOut, isLoading } = useAuth();
   const logout = useLogout();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    setSidebarOpen(window.innerWidth >= 768);
+  }, []);
+
+  useEffect(() => {
+    if (window.innerWidth < 768) {
+      setSidebarOpen(false);
+    }
+  }, [location]);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -85,12 +96,34 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen bg-background overflow-hidden font-sans">
+      {/* Mobile backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* Sidebar */}
       <aside
-        className={`bg-sidebar border-r border-sidebar-border flex-shrink-0 flex flex-col transition-all duration-300 ${sidebarOpen ? "w-64" : "w-0 overflow-hidden"}`}
+        className={[
+          "fixed md:relative inset-y-0 left-0 z-50 md:z-auto",
+          "flex flex-col bg-sidebar border-r border-sidebar-border flex-shrink-0",
+          "w-72 md:w-64",
+          "transition-transform md:transition-all duration-300 ease-in-out",
+          sidebarOpen
+            ? "translate-x-0 md:w-64"
+            : "-translate-x-full md:-translate-x-0 md:w-0 md:overflow-hidden",
+        ].join(" ")}
       >
-        <div className="h-16 flex items-center px-5 border-b border-sidebar-border shrink-0">
+        <div className="h-16 flex items-center px-5 border-b border-sidebar-border shrink-0 justify-between">
           <img src={logo} alt="TodoPay" className="h-10 w-auto" />
+          <button
+            className="md:hidden text-muted-foreground hover:text-foreground p-1"
+            onClick={() => setSidebarOpen(false)}
+          >
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
@@ -98,7 +131,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${
                 location === item.href
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "text-sidebar-foreground hover:bg-sidebar-accent/50"
@@ -137,22 +170,23 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden relative min-w-0">
-        <header className="h-16 border-b border-border bg-card flex items-center px-6 shrink-0 z-10 shadow-sm">
+        <header className="h-14 md:h-16 border-b border-border bg-card flex items-center px-4 md:px-6 shrink-0 z-10 shadow-sm gap-3">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="mr-4 text-muted-foreground"
+            className="text-muted-foreground shrink-0"
           >
             <Menu className="h-5 w-5" />
           </Button>
+          <img src={logo} alt="TodoPay" className="h-7 w-auto md:hidden" />
           <div className="flex-1" />
           <span className="text-xs text-muted-foreground hidden sm:block">
             {ROLE_LABELS[user.role] ?? user.role} · {user.name}
           </span>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 md:p-8">
+        <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
           <div className="max-w-7xl mx-auto">{children}</div>
         </div>
       </main>
