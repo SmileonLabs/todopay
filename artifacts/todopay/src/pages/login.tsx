@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import logo from "@/assets/logo.png";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,9 +64,8 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold tracking-tight text-primary">TodoPay</h1>
-          <p className="mt-2 text-muted-foreground uppercase tracking-widest text-sm">Operations Portal</p>
+        <div className="flex justify-center">
+          <img src={logo} alt="TodoPay" className="h-28 w-auto" />
         </div>
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-2xl">

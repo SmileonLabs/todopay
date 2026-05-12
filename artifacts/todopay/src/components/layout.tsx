@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import logo from "@/assets/logo.png";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { useLogout } from "@workspace/api-client-react";
@@ -88,9 +89,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <aside
         className={`bg-sidebar border-r border-sidebar-border flex-shrink-0 flex flex-col transition-all duration-300 ${sidebarOpen ? "w-64" : "w-0 overflow-hidden"}`}
       >
-        <div className="h-16 flex items-center px-6 border-b border-sidebar-border shrink-0">
-          <span className="text-xl font-bold text-primary tracking-tight">TodoPay</span>
-          <span className="ml-2 text-xs text-muted-foreground">ADMIN</span>
+        <div className="h-16 flex items-center px-5 border-b border-sidebar-border shrink-0">
+          <img src={logo} alt="TodoPay" className="h-10 w-auto" />
         </div>
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
