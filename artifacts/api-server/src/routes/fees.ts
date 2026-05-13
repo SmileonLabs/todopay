@@ -20,6 +20,34 @@ async function getCallerFromToken(authHeader: string | undefined) {
   }
 }
 
+type FeeRow = {
+  user_id: number;
+  user_login_id: string;
+  user_name: string;
+  role: string;
+  parent_id: number | null;
+  parent_name: string | null;
+  parent_login_id: string | null;
+  fee_config_id: number | null;
+  deposit_fee: string | null;
+  withdrawal_fee: string | null;
+};
+
+function mapRow(r: FeeRow) {
+  return {
+    userId: r.user_id,
+    userLoginId: r.user_login_id,
+    userName: r.user_name,
+    role: r.role,
+    parentId: r.parent_id ?? null,
+    parentName: r.parent_name ?? null,
+    parentLoginId: r.parent_login_id ?? null,
+    feeConfigId: r.fee_config_id ?? null,
+    depositFee: r.deposit_fee != null ? Number(r.deposit_fee) : null,
+    withdrawalFee: r.withdrawal_fee != null ? Number(r.withdrawal_fee) : null,
+  };
+}
+
 router.get("/fees", async (req, res) => {
   const caller = await getCallerFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -27,144 +55,160 @@ router.get("/fees", async (req, res) => {
   const roleFilter = req.query.role as string | undefined;
 
   if (roleFilter) {
-    // Recursive CTE: get all descendants of caller, filtered by role
-    const queryResult = await db.execute(sql`
-      WITH RECURSIVE descendants AS (
-        SELECT id, login_id, name, role, parent_id
-        FROM admin_users
-        WHERE id = ${caller.id}
-        UNION ALL
-        SELECT au.id, au.login_id, au.name, au.role, au.parent_id
+    let rows: FeeRow[];
+
+    if (caller.role === "superadmin") {
+      // Superadmin: all users of the requested role (no tree constraint)
+      const result = await db.execute(sql`
+        SELECT
+          au.id         AS user_id,
+          au.login_id   AS user_login_id,
+          au.name       AS user_name,
+          au.role       AS role,
+          au.parent_id  AS parent_id,
+          p.name        AS parent_name,
+          p.login_id    AS parent_login_id,
+          fc.id         AS fee_config_id,
+          fc.deposit_fee    AS deposit_fee,
+          fc.withdrawal_fee AS withdrawal_fee
         FROM admin_users au
-        JOIN descendants d ON au.parent_id = d.id
-      )
-      SELECT
-        au.id         AS user_id,
-        au.login_id   AS user_login_id,
-        au.name       AS user_name,
-        au.role       AS role,
-        au.parent_id  AS parent_id,
-        p.name        AS parent_name,
-        p.login_id    AS parent_login_id,
-        fc.id         AS fee_config_id,
-        fc.deposit_fee    AS deposit_fee,
-        fc.withdrawal_fee AS withdrawal_fee
-      FROM descendants au
-      LEFT JOIN admin_users p ON p.id = au.parent_id
-      LEFT JOIN fee_configs fc ON fc.user_id = au.id
-      WHERE au.id != ${caller.id}
-        AND au.role = ${roleFilter}
-      ORDER BY au.name
-    `);
+        LEFT JOIN admin_users p ON p.id = au.parent_id
+        LEFT JOIN fee_configs fc ON fc.user_id = au.id
+        WHERE au.role = ${roleFilter}
+        ORDER BY au.name
+      `);
+      rows = (result as unknown as { rows: FeeRow[] }).rows;
+    } else {
+      // Other roles: recursive CTE — only show descendants
+      const result = await db.execute(sql`
+        WITH RECURSIVE descendants AS (
+          SELECT id, login_id, name, role, parent_id
+          FROM admin_users
+          WHERE id = ${caller.id}
+          UNION ALL
+          SELECT au.id, au.login_id, au.name, au.role, au.parent_id
+          FROM admin_users au
+          JOIN descendants d ON au.parent_id = d.id
+        )
+        SELECT
+          au.id         AS user_id,
+          au.login_id   AS user_login_id,
+          au.name       AS user_name,
+          au.role       AS role,
+          au.parent_id  AS parent_id,
+          p.name        AS parent_name,
+          p.login_id    AS parent_login_id,
+          fc.id         AS fee_config_id,
+          fc.deposit_fee    AS deposit_fee,
+          fc.withdrawal_fee AS withdrawal_fee
+        FROM descendants au
+        LEFT JOIN admin_users p ON p.id = au.parent_id
+        LEFT JOIN fee_configs fc ON fc.user_id = au.id
+        WHERE au.id != ${caller.id}
+          AND au.role = ${roleFilter}
+        ORDER BY au.name
+      `);
+      rows = (result as unknown as { rows: FeeRow[] }).rows;
+    }
 
-    const rows = (queryResult as unknown as { rows: Array<{
-      user_id: number;
-      user_login_id: string;
-      user_name: string;
-      role: string;
-      parent_id: number | null;
-      parent_name: string | null;
-      parent_login_id: string | null;
-      fee_config_id: number | null;
-      deposit_fee: string | null;
-      withdrawal_fee: string | null;
-    }> }).rows;
-
-    const result = rows.map(r => ({
-      userId: r.user_id,
-      userLoginId: r.user_login_id,
-      userName: r.user_name,
-      role: r.role,
-      parentId: r.parent_id ?? null,
-      parentName: r.parent_name ?? null,
-      parentLoginId: r.parent_login_id ?? null,
-      feeConfigId: r.fee_config_id ?? null,
-      depositFee: r.deposit_fee != null ? Number(r.deposit_fee) : null,
-      withdrawalFee: r.withdrawal_fee != null ? Number(r.withdrawal_fee) : null,
-    }));
-
-    res.json(result);
+    res.json(rows.map(mapRow));
     return;
   }
 
-  // Legacy: direct children of parentId (or caller)
+  // Legacy: direct children
   const parentId = req.query.parentId
     ? parseInt(req.query.parentId as string, 10)
     : caller.id;
 
-  const subs = await db
-    .select({
-      userId: adminUsersTable.id,
-      userLoginId: adminUsersTable.loginId,
-      userName: adminUsersTable.name,
-      role: adminUsersTable.role,
-      parentId: adminUsersTable.parentId,
-      feeConfigId: feeConfigsTable.id,
-      depositFee: feeConfigsTable.depositFee,
-      withdrawalFee: feeConfigsTable.withdrawalFee,
-    })
-    .from(adminUsersTable)
-    .leftJoin(feeConfigsTable, eq(feeConfigsTable.userId, adminUsersTable.id))
-    .where(eq(adminUsersTable.parentId, parentId));
-
-  const roleOrder = ["hq", "distributor", "agency", "store"];
-  subs.sort((a, b) =>
-    roleOrder.indexOf(a.role) - roleOrder.indexOf(b.role) ||
-    a.userName.localeCompare(b.userName, "ko")
-  );
-
-  res.json(subs.map(r => ({
-    userId: r.userId,
-    userLoginId: r.userLoginId,
-    userName: r.userName,
-    role: r.role,
-    parentId: r.parentId ?? null,
-    parentName: null,
-    parentLoginId: null,
-    feeConfigId: r.feeConfigId ?? null,
-    depositFee: r.depositFee != null ? Number(r.depositFee) : null,
-    withdrawalFee: r.withdrawalFee != null ? Number(r.withdrawalFee) : null,
-  })));
+  const result = await db.execute(sql`
+    SELECT
+      au.id         AS user_id,
+      au.login_id   AS user_login_id,
+      au.name       AS user_name,
+      au.role       AS role,
+      au.parent_id  AS parent_id,
+      p.name        AS parent_name,
+      p.login_id    AS parent_login_id,
+      fc.id         AS fee_config_id,
+      fc.deposit_fee    AS deposit_fee,
+      fc.withdrawal_fee AS withdrawal_fee
+    FROM admin_users au
+    LEFT JOIN admin_users p ON p.id = au.parent_id
+    LEFT JOIN fee_configs fc ON fc.user_id = au.id
+    WHERE au.parent_id = ${parentId}
+    ORDER BY au.name
+  `);
+  const rows = (result as unknown as { rows: FeeRow[] }).rows;
+  res.json(rows.map(mapRow));
 });
 
 router.post("/fees", async (req, res) => {
+  const caller = await getCallerFromToken(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = CreateFeeConfigBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
-  const [f] = await db.insert(feeConfigsTable).values({
-    userId: parsed.data.userId,
-    depositFee: String(parsed.data.depositFee),
-    withdrawalFee: String(parsed.data.withdrawalFee),
-  }).returning();
-  const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, f.userId));
-  res.status(201).json({
+
+  // Upsert: if fee_config already exists for this userId, update instead of insert
+  const [f] = await db.execute(sql`
+    INSERT INTO fee_configs (user_id, deposit_fee, withdrawal_fee)
+    VALUES (${parsed.data.userId}, ${String(parsed.data.depositFee)}, ${String(parsed.data.withdrawalFee)})
+    ON CONFLICT (user_id) DO UPDATE
+      SET deposit_fee = EXCLUDED.deposit_fee,
+          withdrawal_fee = EXCLUDED.withdrawal_fee
+    RETURNING id, user_id, deposit_fee, withdrawal_fee, created_at
+  `).then(r => (r as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string; created_at: string }> }).rows);
+
+  const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, f.user_id));
+  res.status(200).json({
     id: f.id,
-    userId: f.userId,
+    userId: f.user_id,
     userName: user?.name ?? "Unknown",
     role: user?.role ?? "unknown",
-    depositFee: Number(f.depositFee),
-    withdrawalFee: Number(f.withdrawalFee),
-    createdAt: f.createdAt.toISOString(),
+    depositFee: Number(f.deposit_fee),
+    withdrawalFee: Number(f.withdrawal_fee),
+    createdAt: f.created_at,
   });
 });
 
 router.patch("/fees/:id", async (req, res) => {
+  const caller = await getCallerFromToken(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const id = parseInt(req.params.id, 10);
   const parsed = UpdateFeeConfigBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+
   const updates: Record<string, string> = {};
-  if (parsed.data.depositFee !== undefined) updates.depositFee = String(parsed.data.depositFee);
-  if (parsed.data.withdrawalFee !== undefined) updates.withdrawalFee = String(parsed.data.withdrawalFee);
-  const [f] = await db.update(feeConfigsTable).set(updates as never).where(eq(feeConfigsTable.id, id)).returning();
+  if (parsed.data.depositFee !== undefined) updates.deposit_fee = String(parsed.data.depositFee);
+  if (parsed.data.withdrawalFee !== undefined) updates.withdrawal_fee = String(parsed.data.withdrawalFee);
+
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "No fields to update" });
+    return;
+  }
+
+  const setClauses = Object.entries(updates)
+    .map(([col, val]) => sql`${sql.raw(col)} = ${val}`)
+    .reduce((acc, clause, i) => i === 0 ? clause : sql`${acc}, ${clause}`);
+
+  const result = await db.execute(sql`
+    UPDATE fee_configs SET ${setClauses} WHERE id = ${id}
+    RETURNING id, user_id, deposit_fee, withdrawal_fee, created_at
+  `);
+  const rows = (result as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string; created_at: string }> }).rows;
+  const f = rows[0];
   if (!f) { res.status(404).json({ error: "Not found" }); return; }
-  const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, f.userId));
+
+  const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, f.user_id));
   res.json({
     id: f.id,
-    userId: f.userId,
+    userId: f.user_id,
     userName: user?.name ?? "Unknown",
     role: user?.role ?? "unknown",
-    depositFee: Number(f.depositFee),
-    withdrawalFee: Number(f.withdrawalFee),
-    createdAt: f.createdAt.toISOString(),
+    depositFee: Number(f.deposit_fee),
+    withdrawalFee: Number(f.withdrawal_fee),
+    createdAt: f.created_at,
   });
 });
 
