@@ -1374,6 +1374,10 @@ components:
           type: ["number", "null"]
         withdrawalFee:
           type: ["number", "null"]
+        parentDepositFee:
+          type: ["number", "null"]
+        parentWithdrawalFee:
+          type: ["number", "null"]
 
     FeeConfig:
       type: object

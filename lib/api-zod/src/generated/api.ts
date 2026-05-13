@@ -598,6 +598,8 @@ export const ListFeesResponseItem = zod.object({
   feeConfigId: zod.number().nullish(),
   depositFee: zod.number().nullish(),
   withdrawalFee: zod.number().nullish(),
+  parentDepositFee: zod.number().nullish(),
+  parentWithdrawalFee: zod.number().nullish(),
 });
 export const ListFeesResponse = zod.array(ListFeesResponseItem);
 

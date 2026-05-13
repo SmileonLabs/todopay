@@ -266,6 +266,10 @@ export interface FeeListItem {
   depositFee?: number | null;
   /** @nullable */
   withdrawalFee?: number | null;
+  /** @nullable */
+  parentDepositFee?: number | null;
+  /** @nullable */
+  parentWithdrawalFee?: number | null;
 }
 
 export interface FeeConfig {

@@ -31,6 +31,8 @@ type FeeRow = {
   fee_config_id: number | null;
   deposit_fee: string | null;
   withdrawal_fee: string | null;
+  parent_deposit_fee: string | null;
+  parent_withdrawal_fee: string | null;
 };
 
 function mapRow(r: FeeRow) {
@@ -45,9 +47,34 @@ function mapRow(r: FeeRow) {
     feeConfigId: r.fee_config_id ?? null,
     depositFee: r.deposit_fee != null ? Number(r.deposit_fee) : null,
     withdrawalFee: r.withdrawal_fee != null ? Number(r.withdrawal_fee) : null,
+    parentDepositFee: r.parent_deposit_fee != null ? Number(r.parent_deposit_fee) : null,
+    parentWithdrawalFee: r.parent_withdrawal_fee != null ? Number(r.parent_withdrawal_fee) : null,
   };
 }
 
+// Validate that child fee <= parent fee (cascading constraint)
+// Returns error message if invalid, null if OK
+async function validateAgainstParent(
+  userId: number,
+  depositFee: number | undefined,
+  withdrawalFee: number | undefined,
+): Promise<string | null> {
+  const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, userId));
+  if (!user || !user.parentId) return null; // superadmin or HQ with no parent — no cap
+
+  const [parentFee] = await db.select().from(feeConfigsTable).where(eq(feeConfigsTable.userId, user.parentId));
+  if (!parentFee) return null; // parent has no fee configured yet — no cap enforced
+
+  if (depositFee !== undefined && depositFee > Number(parentFee.depositFee)) {
+    return `입금 수수료(${depositFee}%)가 상위 계정 수수료(${Number(parentFee.depositFee)}%)를 초과할 수 없습니다`;
+  }
+  if (withdrawalFee !== undefined && withdrawalFee > Number(parentFee.withdrawalFee)) {
+    return `출금 수수료(${withdrawalFee}%)가 상위 계정 수수료(${Number(parentFee.withdrawalFee)}%)를 초과할 수 없습니다`;
+  }
+  return null;
+}
+
+// GET /fees — admin only, returns users at given role with their fee + parent's fee
 router.get("/fees", async (req, res) => {
   const caller = await getCallerFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -58,7 +85,6 @@ router.get("/fees", async (req, res) => {
     let rows: FeeRow[];
 
     if (caller.role === "superadmin") {
-      // Superadmin: all users of the requested role (no tree constraint)
       const result = await db.execute(sql`
         SELECT
           au.id         AS user_id,
@@ -70,16 +96,18 @@ router.get("/fees", async (req, res) => {
           p.login_id    AS parent_login_id,
           fc.id         AS fee_config_id,
           fc.deposit_fee    AS deposit_fee,
-          fc.withdrawal_fee AS withdrawal_fee
+          fc.withdrawal_fee AS withdrawal_fee,
+          pfc.deposit_fee    AS parent_deposit_fee,
+          pfc.withdrawal_fee AS parent_withdrawal_fee
         FROM admin_users au
         LEFT JOIN admin_users p ON p.id = au.parent_id
-        LEFT JOIN fee_configs fc ON fc.user_id = au.id
+        LEFT JOIN fee_configs fc  ON fc.user_id  = au.id
+        LEFT JOIN fee_configs pfc ON pfc.user_id = au.parent_id
         WHERE au.role = ${roleFilter}
         ORDER BY au.name
       `);
       rows = (result as unknown as { rows: FeeRow[] }).rows;
     } else {
-      // Other roles: recursive CTE — only show descendants
       const result = await db.execute(sql`
         WITH RECURSIVE descendants AS (
           SELECT id, login_id, name, role, parent_id
@@ -100,10 +128,13 @@ router.get("/fees", async (req, res) => {
           p.login_id    AS parent_login_id,
           fc.id         AS fee_config_id,
           fc.deposit_fee    AS deposit_fee,
-          fc.withdrawal_fee AS withdrawal_fee
+          fc.withdrawal_fee AS withdrawal_fee,
+          pfc.deposit_fee    AS parent_deposit_fee,
+          pfc.withdrawal_fee AS parent_withdrawal_fee
         FROM descendants au
         LEFT JOIN admin_users p ON p.id = au.parent_id
-        LEFT JOIN fee_configs fc ON fc.user_id = au.id
+        LEFT JOIN fee_configs fc  ON fc.user_id  = au.id
+        LEFT JOIN fee_configs pfc ON pfc.user_id = au.parent_id
         WHERE au.id != ${caller.id}
           AND au.role = ${roleFilter}
         ORDER BY au.name
@@ -131,10 +162,13 @@ router.get("/fees", async (req, res) => {
       p.login_id    AS parent_login_id,
       fc.id         AS fee_config_id,
       fc.deposit_fee    AS deposit_fee,
-      fc.withdrawal_fee AS withdrawal_fee
+      fc.withdrawal_fee AS withdrawal_fee,
+      pfc.deposit_fee    AS parent_deposit_fee,
+      pfc.withdrawal_fee AS parent_withdrawal_fee
     FROM admin_users au
     LEFT JOIN admin_users p ON p.id = au.parent_id
-    LEFT JOIN fee_configs fc ON fc.user_id = au.id
+    LEFT JOIN fee_configs fc  ON fc.user_id  = au.id
+    LEFT JOIN fee_configs pfc ON pfc.user_id = au.parent_id
     WHERE au.parent_id = ${parentId}
     ORDER BY au.name
   `);
@@ -142,6 +176,7 @@ router.get("/fees", async (req, res) => {
   res.json(rows.map(mapRow));
 });
 
+// POST /fees — create or upsert fee config (validates child ≤ parent)
 router.post("/fees", async (req, res) => {
   const caller = await getCallerFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -149,10 +184,20 @@ router.post("/fees", async (req, res) => {
   const parsed = CreateFeeConfigBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
-  // Upsert: if fee_config already exists for this userId, update instead of insert
+  const { userId, depositFee, withdrawalFee } = parsed.data;
+
+  // Range check
+  if (depositFee < 0 || depositFee > 100 || withdrawalFee < 0 || withdrawalFee > 100) {
+    res.status(400).json({ error: "수수료는 0~100% 사이여야 합니다" }); return;
+  }
+
+  // Cascade constraint: child fee must not exceed parent fee
+  const validationError = await validateAgainstParent(userId, depositFee, withdrawalFee);
+  if (validationError) { res.status(400).json({ error: validationError }); return; }
+
   const [f] = await db.execute(sql`
     INSERT INTO fee_configs (user_id, deposit_fee, withdrawal_fee)
-    VALUES (${parsed.data.userId}, ${String(parsed.data.depositFee)}, ${String(parsed.data.withdrawalFee)})
+    VALUES (${userId}, ${String(depositFee)}, ${String(withdrawalFee)})
     ON CONFLICT (user_id) DO UPDATE
       SET deposit_fee = EXCLUDED.deposit_fee,
           withdrawal_fee = EXCLUDED.withdrawal_fee
@@ -171,6 +216,7 @@ router.post("/fees", async (req, res) => {
   });
 });
 
+// PATCH /fees/:id — update fee config (validates child ≤ parent)
 router.patch("/fees/:id", async (req, res) => {
   const caller = await getCallerFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -178,6 +224,24 @@ router.patch("/fees/:id", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const parsed = UpdateFeeConfigBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+
+  // Fetch the existing fee record to get userId
+  const existing = await db.execute(sql`SELECT id, user_id, deposit_fee, withdrawal_fee FROM fee_configs WHERE id = ${id}`);
+  const existingRows = (existing as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string }> }).rows;
+  if (existingRows.length === 0) { res.status(404).json({ error: "Not found" }); return; }
+  const existingFee = existingRows[0];
+
+  const newDeposit = parsed.data.depositFee !== undefined ? parsed.data.depositFee : Number(existingFee.deposit_fee);
+  const newWithdrawal = parsed.data.withdrawalFee !== undefined ? parsed.data.withdrawalFee : Number(existingFee.withdrawal_fee);
+
+  // Range check
+  if (newDeposit < 0 || newDeposit > 100 || newWithdrawal < 0 || newWithdrawal > 100) {
+    res.status(400).json({ error: "수수료는 0~100% 사이여야 합니다" }); return;
+  }
+
+  // Cascade constraint
+  const validationError = await validateAgainstParent(existingFee.user_id, newDeposit, newWithdrawal);
+  if (validationError) { res.status(400).json({ error: validationError }); return; }
 
   const updates: Record<string, string> = {};
   if (parsed.data.depositFee !== undefined) updates.deposit_fee = String(parsed.data.depositFee);
