@@ -12,11 +12,8 @@ import feesRouter from "./fees";
 import statisticsRouter from "./statistics";
 import noticesRouter from "./notices";
 import otpRouter from "./otp";
-import purgeRouter from "./purge";
-
 const router: IRouter = Router();
 
-router.use(purgeRouter);
 router.use(healthRouter);
 router.use(authRouter);
 router.use(memberAuthRouter);
