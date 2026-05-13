@@ -65,7 +65,7 @@ export default function Login() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="flex justify-center">
-          <img src={logo} alt="TodoPay" className="h-36 w-auto brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-56 w-auto brightness-0 invert" />
         </div>
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-2xl">

@@ -117,7 +117,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         ].join(" ")}
       >
         <div className="h-16 flex items-center px-5 border-b border-sidebar-border shrink-0 justify-between">
-          <img src={logo} alt="TodoPay" className="h-14 w-auto brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-[84px] w-auto brightness-0 invert" />
           <button
             className="md:hidden text-muted-foreground hover:text-foreground p-1"
             onClick={() => setSidebarOpen(false)}
@@ -179,7 +179,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <img src={logo} alt="TodoPay" className="h-8 w-auto md:hidden brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-12 w-auto md:hidden brightness-0 invert" />
           <div className="flex-1" />
           <span className="text-xs text-muted-foreground hidden sm:block">
             {ROLE_LABELS[user.role] ?? user.role} · {user.name}
