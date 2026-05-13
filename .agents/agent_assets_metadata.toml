@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "sdvEOkcS_lbGCRhlD4-ct"
+uri = "file://todopay-admin-guide.pdf"
+type = "pdf"
+title = "TodoPay 관리자 전체 기능 가이드 v1.0"
