@@ -24,7 +24,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/format";
-import { Loader2, Search, Plus, CreditCard, RefreshCw, Trash2, Link, Copy, CopyCheck } from "lucide-react";
+import { Loader2, Search, Plus, CreditCard, RefreshCw, Trash2, Link, Copy, CopyCheck, ExternalLink } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
@@ -128,6 +128,16 @@ export default function Members() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight">회원 관리</h1>
         <div className="flex gap-2">
+          <a
+            href={linkData?.url ? linkData.url.replace("/register/member", "/member/login") : "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 text-xs h-9 px-3 rounded-md border border-input bg-transparent hover:bg-accent hover:text-accent-foreground transition-colors"
+          >
+            <ExternalLink className="h-4 w-4" />
+            <span className="hidden sm:inline">회원 로그인 페이지</span>
+            <span className="sm:hidden">포털</span>
+          </a>
           <Button variant="outline" onClick={handleCopyLink} className="gap-2 text-xs h-9">
             {linkCopied ? <CopyCheck className="h-4 w-4 text-green-400" /> : <Link className="h-4 w-4" />}
             <span className="hidden sm:inline">가입 링크 복사</span>

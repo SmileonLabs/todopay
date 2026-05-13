@@ -34,7 +34,7 @@ const STATUS_CLASS: Record<string, string> = {
 
 type Tab = "account" | "deposit" | "history";
 
-function Portal({ session, token, onLogout }: { session: MemberSession; token: string; onLogout: () => void }) {
+function Portal({ session, token, onLogout, onSessionRefresh }: { session: MemberSession; token: string; onLogout: () => void; onSessionRefresh: () => Promise<void> }) {
   const { member, account } = session;
   const [tab, setTab] = useState<Tab>("account");
   const [copied, setCopied] = useState(false);
@@ -48,6 +48,11 @@ function Portal({ session, token, onLogout }: { session: MemberSession; token: s
 
   const [deposits, setDeposits] = useState<DepositsResponse | null>(null);
   const [depositsLoading, setDepositsLoading] = useState(false);
+
+  useEffect(() => {
+    const id = setInterval(() => void onSessionRefresh(), 15000);
+    return () => clearInterval(id);
+  }, [onSessionRefresh]);
 
   const handleCopy = () => {
     if (!account) return;
@@ -389,7 +394,15 @@ export default function MemberLogin() {
     </div>
   );
 
-  if (session) return <Portal session={session} token={token} onLogout={handleLogout} />;
+  const handleRefreshSession = async () => {
+    const res = await fetch(api("api/member/auth/me"), { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) {
+      const data = await res.json() as MemberSession;
+      setSession({ member: data.member, account: data.account });
+    }
+  };
+
+  if (session) return <Portal session={session} token={token} onLogout={handleLogout} onSessionRefresh={handleRefreshSession} />;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -422,7 +435,7 @@ export default function MemberLogin() {
         </Card>
         <div className="text-center">
           <p className="text-sm text-muted-foreground mb-2">아직 회원이 아니신가요?</p>
-          <a href="/register/member" className="text-sm font-medium text-primary hover:text-primary/80 underline-offset-4 hover:underline transition-colors">회원 가입하기</a>
+          <a href={`${baseUrl}register/member`.replace(/\/+/g, "/")} className="text-sm font-medium text-primary hover:text-primary/80 underline-offset-4 hover:underline transition-colors">회원 가입하기</a>
         </div>
         <p className="text-center text-xs text-muted-foreground">© 2026 TodoPay Financial Operations. All rights reserved.</p>
       </div>

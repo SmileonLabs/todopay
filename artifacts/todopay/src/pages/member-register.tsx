@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import logo from "@/assets/logo.svg";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -157,8 +158,8 @@ export default function MemberRegister() {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md space-y-6">
-          <div className="text-center">
-            <span className="text-2xl font-bold text-primary tracking-tight">TodoPay</span>
+          <div className="flex justify-center">
+            <img src={logo} alt="TodoPay" className="h-20 w-auto brightness-0 invert" />
           </div>
           <Card className="bg-card border-border/50">
             <CardContent className="pt-8 pb-8 flex flex-col items-center text-center space-y-6">
@@ -194,7 +195,7 @@ export default function MemberRegister() {
                 위 가상계좌로 입금하면 자동으로 처리됩니다.<br />
                 아이디 <span className="font-mono font-medium text-foreground">{result.loginId}</span>로 서비스를 이용하실 수 있습니다.
               </p>
-              <a href="/member/login" className="text-sm text-primary hover:text-primary/80 underline-offset-4 hover:underline transition-colors font-medium">
+              <a href={`${baseUrl}member/login`.replace(/\/+/g, "/")} className="text-sm text-primary hover:text-primary/80 underline-offset-4 hover:underline transition-colors font-medium">
                 로그인 하러가기
               </a>
             </CardContent>
@@ -208,8 +209,8 @@ export default function MemberRegister() {
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-5">
-        <div className="text-center space-y-1">
-          <h1 className="text-2xl font-bold text-primary tracking-tight">TodoPay</h1>
+        <div className="flex flex-col items-center gap-2">
+          <img src={logo} alt="TodoPay" className="h-20 w-auto brightness-0 invert" />
           <p className="text-xs text-muted-foreground uppercase tracking-widest">회원 가입</p>
         </div>
 
