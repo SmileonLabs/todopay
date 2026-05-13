@@ -140,11 +140,22 @@ router.post("/member/deposit-request", async (req, res) => {
 
   const { amount, fromBank, fromAccount } = req.body as { amount?: number; fromBank?: string; fromAccount?: string };
   if (!amount || Number(amount) <= 0) { res.status(400).json({ error: "금액을 올바르게 입력해주세요" }); return; }
+  if (Number(amount) < 1000) { res.status(400).json({ error: "최소 입금액은 1,000원입니다" }); return; }
   if (!fromAccount?.trim()) { res.status(400).json({ error: "계좌번호를 입력해주세요" }); return; }
 
   const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
   if (!va) { res.status(400).json({ error: "발급된 가상계좌가 없습니다" }); return; }
   if (va.status === "revoked") { res.status(400).json({ error: "비활성화된 가상계좌입니다" }); return; }
+
+  // 대기 중인 입금 신청이 5건 이상이면 추가 신청 차단
+  const [{ pendingCount }] = await db.select({
+    pendingCount: sql<number>`count(*)`,
+  }).from(transactionsTable).where(
+    and(eq(transactionsTable.memberId, member.id), eq(transactionsTable.status, "pending"), eq(transactionsTable.type, "deposit"))
+  );
+  if (Number(pendingCount) >= 5) {
+    res.status(400).json({ error: "대기 중인 입금 신청이 너무 많습니다. 기존 신청 처리 후 다시 시도해주세요." }); return;
+  }
 
   const fromAccountStr = fromBank ? `${fromBank} ${fromAccount.trim()}` : fromAccount.trim();
 
@@ -215,9 +226,10 @@ router.post("/member/withdrawal-request", async (req, res) => {
 
   const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
   if (!va) { res.status(400).json({ error: "발급된 가상계좌가 없습니다" }); return; }
-  const currentBalance = Number(va.balance);
-  if (currentBalance < Number(amount)) {
-    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${currentBalance.toLocaleString("ko-KR")}원)` }); return;
+
+  // 빠른 사전 검사 (UX용 — 실제 차단은 아래 원자적 UPDATE에서)
+  if (Number(va.balance) < Number(amount)) {
+    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${Number(va.balance).toLocaleString("ko-KR")}원)` }); return;
   }
 
   // 수수료 조회 (매장 fee_configs.withdrawalFee)
@@ -231,10 +243,20 @@ router.post("/member/withdrawal-request", async (req, res) => {
   const fee = Math.round(Number(amount) * feeRate / 100);
   const totalAmount = Number(amount) - fee;
 
-  // 신청 즉시 잔액 예약 차감 (중복 신청 방지)
-  await db.update(virtualAccountsTable)
-    .set({ balance: (currentBalance - Number(amount)).toFixed(2) })
-    .where(eq(virtualAccountsTable.id, va.id));
+  // 원자적 잔액 차감: raw SQL로 balance >= amount 조건 + 차감을 단일 DB 연산으로 처리
+  // 두 요청이 동시에 도달해도 PostgreSQL 행 잠금이 직렬화 보장
+  const deductResult = await db.execute(
+    sql`UPDATE virtual_accounts
+        SET balance = balance - ${Number(amount)}
+        WHERE id = ${va.id} AND balance >= ${Number(amount)}
+        RETURNING id`
+  );
+
+  if (!deductResult.rows || deductResult.rows.length === 0) {
+    // 동시 요청이 먼저 차감한 경우 — 최신 잔액으로 에러 반환
+    const [fresh] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.id, va.id));
+    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${Number(fresh?.balance ?? 0).toLocaleString("ko-KR")}원)` }); return;
+  }
 
   const [w] = await db.insert(withdrawalsTable).values({
     trackingNumber: generateId("WD"),

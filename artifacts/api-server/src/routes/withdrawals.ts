@@ -99,6 +99,7 @@ router.get("/withdrawals", async (req, res) => {
   });
 });
 
+// 관리자 직접 출금 생성 (회원 잔액 차감 포함)
 router.post("/withdrawals", async (req, res) => {
   const parsed = CreateWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
@@ -114,6 +115,18 @@ router.post("/withdrawals", async (req, res) => {
       storeId = member.storeId;
       const [feeConfig] = await db.select().from(feeConfigsTable).where(eq(feeConfigsTable.userId, member.storeId));
       if (feeConfig) feeRate = Number(feeConfig.withdrawalFee);
+    }
+
+    // 회원 잔액 원자적 차감: raw SQL로 balance >= amount 조건 + 차감을 단일 DB 연산으로 처리
+    const deductResult = await db.execute(
+      sql`UPDATE virtual_accounts
+          SET balance = balance - ${Number(amount)}
+          WHERE member_id = ${memberId} AND balance >= ${Number(amount)}
+          RETURNING id`
+    );
+    if (!deductResult.rows || deductResult.rows.length === 0) {
+      const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, memberId));
+      res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${Number(va?.balance ?? 0).toLocaleString("ko-KR")}원)` }); return;
     }
   }
 
@@ -136,59 +149,67 @@ router.post("/withdrawals", async (req, res) => {
   res.status(201).json(await formatWithdrawal(w));
 });
 
+// 출금 승인: 원자적 상태 전환 (pending → approved)
+// 잔액은 신청 시점에 이미 예약 차감됨 — 승인 시 상태만 변경
 router.post("/withdrawals/:id/approve", async (req, res) => {
   const id = parseInt(req.params.id, 10);
 
-  const [w] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
-  if (!w) { res.status(404).json({ error: "Not found" }); return; }
-  if (w.approvalStatus !== "pending") { res.status(400).json({ error: "이미 처리된 출금입니다" }); return; }
-
-  // 잔액은 신청 시점에 이미 예약 차감됨 — 승인 시 상태만 변경
-
+  // SELECT + UPDATE 분리 시 동시 요청이 둘 다 pending 체크를 통과할 수 있음
+  // WHERE approvalStatus = 'pending' 조건을 UPDATE에 포함해 원자적으로 처리
   const [updated] = await db.update(withdrawalsTable)
     .set({ approvalStatus: "approved" })
-    .where(eq(withdrawalsTable.id, id))
+    .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
     .returning();
 
-  // balance_records 자동 기록
+  if (!updated) {
+    // 행이 없거나 이미 처리된 경우
+    const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
+    if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+    res.status(400).json({ error: "이미 처리된 출금입니다" }); return;
+  }
+
+  // balance_records 기록
   const [lastBal] = await db.select().from(balanceRecordsTable).orderBy(sql`created_at desc`).limit(1);
   const prevBal = Number(lastBal?.balance ?? 0);
   await db.insert(balanceRecordsTable).values({
     direction: "out",
     category: "withdrawal",
-    amount: w.amount,
-    balance: (prevBal - Number(w.amount)).toFixed(2),
-    description: `출금 승인 - ${w.trackingNumber} (실지급 ${Number(w.totalAmount).toLocaleString("ko-KR")}원)`,
-    userId: w.storeId ?? null,
+    amount: updated.amount,
+    balance: (prevBal - Number(updated.amount)).toFixed(2),
+    description: `출금 승인 - ${updated.trackingNumber} (실지급 ${Number(updated.totalAmount).toLocaleString("ko-KR")}원)`,
+    userId: updated.storeId ?? null,
   });
 
   res.json(await formatWithdrawal(updated));
 });
 
+// 출금 거절: 원자적 상태 전환 (pending → rejected) + 잔액 복원
 router.post("/withdrawals/:id/reject", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const parsed = RejectWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
-  const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
-  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
-  if (existing.approvalStatus !== "pending") { res.status(400).json({ error: "이미 처리된 출금입니다" }); return; }
+  // 원자적으로 pending → rejected 전환
+  // 이미 처리된 건은 WHERE 조건에서 걸려 0 rows 반환
+  const [rejected] = await db.update(withdrawalsTable)
+    .set({ approvalStatus: "rejected", rejectReason: parsed.data.reason })
+    .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
+    .returning();
 
-  // 거절 시 예약 차감했던 잔액 복원
-  if (existing.memberId) {
-    const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, existing.memberId));
-    if (va) {
-      await db.update(virtualAccountsTable)
-        .set({ balance: (Number(va.balance) + Number(existing.amount)).toFixed(2) })
-        .where(eq(virtualAccountsTable.id, va.id));
-    }
+  if (!rejected) {
+    const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
+    if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+    res.status(400).json({ error: "이미 처리된 출금입니다" }); return;
   }
 
-  const [w] = await db.update(withdrawalsTable)
-    .set({ approvalStatus: "rejected", rejectReason: parsed.data.reason })
-    .where(eq(withdrawalsTable.id, id))
-    .returning();
-  res.json(await formatWithdrawal(w));
+  // 거절 확정 후 예약 차감분 복원 (원자적 덧셈 — 이중 복원 없음: 위 UPDATE가 한 번만 성공)
+  if (rejected.memberId) {
+    await db.update(virtualAccountsTable)
+      .set({ balance: sql`balance + ${Number(rejected.amount)}` })
+      .where(eq(virtualAccountsTable.memberId, rejected.memberId));
+  }
+
+  res.json(await formatWithdrawal(rejected));
 });
 
 export default router;

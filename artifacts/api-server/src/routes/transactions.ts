@@ -82,6 +82,8 @@ router.get("/transactions", async (req, res) => {
   res.json({ items: formatted, total: Number(count) });
 });
 
+// 입금 확인: 원자적 상태 전환 (pending → success)
+// SELECT + UPDATE 분리 시 동시 클릭으로 잔액 이중 적립 가능 → WHERE status = 'pending' 조건으로 방지
 router.post("/transactions/:id/confirm", async (req, res) => {
   const adminId = getAdminId(req.headers.authorization);
   if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -90,10 +92,13 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   if (!admin || !admin.isActive) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const txId = parseInt(req.params.id, 10);
+
+  // 거래 조회 (권한 확인 및 수수료 계산용)
   const [tx] = await db.select().from(transactionsTable).where(eq(transactionsTable.id, txId));
   if (!tx) { res.status(404).json({ error: "거래를 찾을 수 없습니다" }); return; }
-  if (tx.status !== "pending") { res.status(400).json({ error: "이미 처리된 거래입니다" }); return; }
   if (tx.type !== "deposit") { res.status(400).json({ error: "입금 거래만 확인 처리할 수 있습니다" }); return; }
+  // 이미 처리된 건 빠른 반환 (UX용 — 실제 중복 방지는 아래 원자적 UPDATE에서)
+  if (tx.status !== "pending") { res.status(400).json({ error: "이미 처리된 거래입니다" }); return; }
 
   let member: typeof membersTable.$inferSelect | null = null;
   if (tx.memberId) {
@@ -101,13 +106,14 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     member = m ?? null;
   }
 
+  // 매장 권한 확인
   if (admin.role === "store" && member) {
     if (member.storeId !== admin.id) {
       res.status(403).json({ error: "권한이 없습니다" }); return;
     }
   }
 
-  // 수수료 계산: 회원 소속 매장의 fee_configs.depositFee
+  // 수수료 계산
   const originalAmount = Number(tx.originalAmount);
   let feeRate = 0;
   if (member?.storeId) {
@@ -118,27 +124,29 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   const feeAmount = Math.round(originalAmount * feeRate / 100);
   const netAmount = originalAmount - feeAmount;
 
+  // 원자적 상태 전환: WHERE status = 'pending' 조건 포함
+  // 동시에 두 요청이 들어와도 하나만 성공, 나머지는 0 rows 반환
   const [updated] = await db.update(transactionsTable)
     .set({
       status: "success",
       fee: feeAmount.toFixed(2),
       amount: netAmount.toFixed(2),
     })
-    .where(eq(transactionsTable.id, txId))
+    .where(and(eq(transactionsTable.id, txId), eq(transactionsTable.status, "pending")))
     .returning();
 
-  // 가상계좌 잔액 업데이트
-  if (tx.memberId) {
-    const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, tx.memberId));
-    if (va) {
-      const newBalance = (Number(va.balance) + netAmount).toFixed(2);
-      await db.update(virtualAccountsTable)
-        .set({ balance: newBalance })
-        .where(eq(virtualAccountsTable.id, va.id));
-    }
+  if (!updated) {
+    res.status(400).json({ error: "이미 처리된 거래입니다" }); return;
   }
 
-  // balance_records 자동 기록 (원금 기준으로 플랫폼 수입)
+  // 가상계좌 잔액 적립 (원자적 덧셈 — 위 UPDATE 성공 후 한 번만 실행됨)
+  if (tx.memberId) {
+    await db.update(virtualAccountsTable)
+      .set({ balance: sql`balance + ${netAmount}` })
+      .where(eq(virtualAccountsTable.memberId, tx.memberId));
+  }
+
+  // balance_records 기록
   const [lastBal] = await db.select().from(balanceRecordsTable).orderBy(sql`created_at desc`).limit(1);
   const prevBal = Number(lastBal?.balance ?? 0);
   await db.insert(balanceRecordsTable).values({
