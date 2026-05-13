@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import logo from "@/assets/logo.png";
+import logo from "@/assets/logo.svg";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -106,7 +106,7 @@ function Portal({ session, token, onLogout }: { session: MemberSession; token: s
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-4">
         <div className="flex items-center justify-between">
-          <img src={logo} alt="TodoPay" className="h-8 w-auto" />
+          <img src={logo} alt="TodoPay" className="h-10 w-auto brightness-0 invert" />
           <button onClick={onLogout} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
             <LogOut className="h-3.5 w-3.5" />로그아웃
           </button>
@@ -395,7 +395,7 @@ export default function MemberLogin() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center gap-2">
-          <img src={logo} alt="TodoPay" className="h-16 w-auto" />
+          <img src={logo} alt="TodoPay" className="h-20 w-auto brightness-0 invert" />
           <p className="text-xs text-muted-foreground uppercase tracking-widest">회원 로그인</p>
         </div>
         <Card className="bg-card border-border/50">
