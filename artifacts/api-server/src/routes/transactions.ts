@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable } from "@workspace/db";
+import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable, feeConfigsTable } from "@workspace/db";
 import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
 
@@ -95,29 +95,49 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   if (tx.status !== "pending") { res.status(400).json({ error: "이미 처리된 거래입니다" }); return; }
   if (tx.type !== "deposit") { res.status(400).json({ error: "입금 거래만 확인 처리할 수 있습니다" }); return; }
 
-  if (admin.role === "store" && tx.memberId) {
-    const [member] = await db.select().from(membersTable).where(eq(membersTable.id, tx.memberId));
-    if (!member || member.storeId !== admin.id) {
+  let member: typeof membersTable.$inferSelect | null = null;
+  if (tx.memberId) {
+    const [m] = await db.select().from(membersTable).where(eq(membersTable.id, tx.memberId));
+    member = m ?? null;
+  }
+
+  if (admin.role === "store" && member) {
+    if (member.storeId !== admin.id) {
       res.status(403).json({ error: "권한이 없습니다" }); return;
     }
   }
 
+  // Fee calculation: look up store's fee config via member → storeId
+  const originalAmount = Number(tx.originalAmount);
+  let feeRate = 0;
+  if (member?.storeId) {
+    const [feeConfig] = await db.select().from(feeConfigsTable)
+      .where(eq(feeConfigsTable.userId, member.storeId));
+    if (feeConfig) feeRate = Number(feeConfig.depositFee);
+  }
+  const feeAmount = Math.round(originalAmount * feeRate / 100);
+  const netAmount = originalAmount - feeAmount;
+
   const [updated] = await db.update(transactionsTable)
-    .set({ status: "success" })
+    .set({
+      status: "success",
+      fee: feeAmount.toFixed(2),
+      amount: netAmount.toFixed(2),
+    })
     .where(eq(transactionsTable.id, txId))
     .returning();
 
   if (tx.memberId) {
     const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, tx.memberId));
     if (va) {
-      const newBalance = (Number(va.balance) + Number(tx.amount)).toFixed(2);
+      const newBalance = (Number(va.balance) + netAmount).toFixed(2);
       await db.update(virtualAccountsTable)
         .set({ balance: newBalance })
         .where(eq(virtualAccountsTable.id, va.id));
     }
   }
 
-  res.json({ success: true, id: updated.id, status: updated.status });
+  res.json({ success: true, id: updated.id, status: updated.status, fee: feeAmount, amount: netAmount });
 });
 
 export default router;
