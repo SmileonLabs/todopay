@@ -12,6 +12,7 @@ export * from "./adminUserList";
 export * from "./adminUserUpdate";
 export * from "./authResponse";
 export * from "./balanceRecord";
+export * from "./balanceRecordInput";
 export * from "./balanceRecordList";
 export * from "./balanceSummary";
 export * from "./confirmTransaction200";

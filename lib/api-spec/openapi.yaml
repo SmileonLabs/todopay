@@ -661,6 +661,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BalanceRecordList"
+    post:
+      operationId: createBalanceRecord
+      tags: [balances]
+      summary: Create manual balance record (충전/조정)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BalanceRecordInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BalanceRecord"
 
   /balances/summary:
     get:
@@ -1287,7 +1304,7 @@ components:
           description: "in | out"
         category:
           type: string
-          description: "withdrawal | payment"
+          description: "deposit | withdrawal | charge | adjustment | payment"
         amount:
           type: number
         balance:
@@ -1295,6 +1312,21 @@ components:
         description:
           type: ["string", "null"]
         createdAt:
+          type: string
+
+    BalanceRecordInput:
+      type: object
+      required: [direction, category, amount]
+      properties:
+        direction:
+          type: string
+          description: "in | out"
+        category:
+          type: string
+          description: "charge | adjustment"
+        amount:
+          type: number
+        description:
           type: string
 
     BalanceRecordList:

@@ -1,20 +1,28 @@
 import { Router } from "express";
-import { db, balanceRecordsTable } from "@workspace/db";
+import { db, balanceRecordsTable, withdrawalsTable } from "@workspace/db";
 import { eq, and, sql, gte, lte } from "drizzle-orm";
 import { ListBalanceRecordsQueryParams } from "@workspace/api-zod";
 
 const router = Router();
 
-router.get("/balances/summary", async (_req, res) => {
+async function getRunningBalance(): Promise<number> {
   const [last] = await db.select().from(balanceRecordsTable).orderBy(sql`created_at desc`).limit(1);
+  return Number(last?.balance ?? 0);
+}
+
+router.get("/balances/summary", async (_req, res) => {
+  const balance = await getRunningBalance();
+
+  // 지급보류: 승인됐지만 아직 미지급 출금 합계
   const [pending] = await db.select({
     amount: sql<number>`coalesce(sum(amount), 0)`,
-  }).from(balanceRecordsTable).where(and(
-    eq(balanceRecordsTable.direction, "out"),
-    eq(balanceRecordsTable.category, "withdrawal")
+  }).from(withdrawalsTable).where(and(
+    eq(withdrawalsTable.approvalStatus, "approved"),
+    eq(withdrawalsTable.withdrawalStatus, "unpaid")
   ));
+
   res.json({
-    balance: Number(last?.balance ?? 0),
+    balance,
     pendingAmount: Number(pending.amount),
   });
 });
@@ -48,6 +56,40 @@ router.get("/balances", async (req, res) => {
       createdAt: r.createdAt.toISOString(),
     })),
     total: Number(count),
+  });
+});
+
+router.post("/balances", async (req, res) => {
+  const { direction, category, amount, description } = req.body as {
+    direction?: string; category?: string; amount?: number; description?: string;
+  };
+  if (!direction || !["in", "out"].includes(direction)) {
+    res.status(400).json({ error: "direction은 'in' 또는 'out'이어야 합니다" }); return;
+  }
+  if (!category) { res.status(400).json({ error: "category를 입력해주세요" }); return; }
+  if (!amount || Number(amount) <= 0) { res.status(400).json({ error: "금액을 올바르게 입력해주세요" }); return; }
+
+  const prevBalance = await getRunningBalance();
+  const newBalance = direction === "in"
+    ? prevBalance + Number(amount)
+    : prevBalance - Number(amount);
+
+  const [record] = await db.insert(balanceRecordsTable).values({
+    direction,
+    category,
+    amount: Number(amount).toFixed(2),
+    balance: newBalance.toFixed(2),
+    description: description?.trim() || null,
+  }).returning();
+
+  res.status(201).json({
+    id: record.id,
+    direction: record.direction,
+    category: record.category,
+    amount: Number(record.amount),
+    balance: Number(record.balance),
+    description: record.description ?? null,
+    createdAt: record.createdAt.toISOString(),
   });
 });
 

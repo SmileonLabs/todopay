@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, withdrawalsTable, membersTable, adminUsersTable, feeConfigsTable, virtualAccountsTable } from "@workspace/db";
+import { db, withdrawalsTable, membersTable, adminUsersTable, feeConfigsTable, virtualAccountsTable, balanceRecordsTable } from "@workspace/db";
 import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
 import { ListWithdrawalsQueryParams, CreateWithdrawalBody, RejectWithdrawalBody } from "@workspace/api-zod";
 import crypto from "crypto";
@@ -104,7 +104,6 @@ router.post("/withdrawals", async (req, res) => {
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const { amount, accountNumber, accountBank, accountHolder } = parsed.data;
 
-  // memberId optional (not in OpenAPI spec, passed manually by admin)
   const memberId: number | null = typeof req.body.memberId === "number" ? req.body.memberId : null;
 
   let feeRate = 0;
@@ -162,6 +161,18 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
     .set({ approvalStatus: "approved" })
     .where(eq(withdrawalsTable.id, id))
     .returning();
+
+  // balance_records 자동 기록
+  const [lastBal] = await db.select().from(balanceRecordsTable).orderBy(sql`created_at desc`).limit(1);
+  const prevBal = Number(lastBal?.balance ?? 0);
+  await db.insert(balanceRecordsTable).values({
+    direction: "out",
+    category: "withdrawal",
+    amount: w.amount,
+    balance: (prevBal - Number(w.amount)).toFixed(2),
+    description: `출금 승인 - ${w.trackingNumber} (실지급 ${Number(w.totalAmount).toLocaleString("ko-KR")}원)`,
+    userId: w.storeId ?? null,
+  });
 
   res.json(await formatWithdrawal(updated));
 });

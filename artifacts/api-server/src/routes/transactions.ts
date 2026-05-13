@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable, feeConfigsTable } from "@workspace/db";
+import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable, feeConfigsTable, balanceRecordsTable } from "@workspace/db";
 import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
 
@@ -107,7 +107,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     }
   }
 
-  // Fee calculation: look up store's fee config via member → storeId
+  // 수수료 계산: 회원 소속 매장의 fee_configs.depositFee
   const originalAmount = Number(tx.originalAmount);
   let feeRate = 0;
   if (member?.storeId) {
@@ -127,6 +127,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     .where(eq(transactionsTable.id, txId))
     .returning();
 
+  // 가상계좌 잔액 업데이트
   if (tx.memberId) {
     const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, tx.memberId));
     if (va) {
@@ -136,6 +137,18 @@ router.post("/transactions/:id/confirm", async (req, res) => {
         .where(eq(virtualAccountsTable.id, va.id));
     }
   }
+
+  // balance_records 자동 기록 (원금 기준으로 플랫폼 수입)
+  const [lastBal] = await db.select().from(balanceRecordsTable).orderBy(sql`created_at desc`).limit(1);
+  const prevBal = Number(lastBal?.balance ?? 0);
+  await db.insert(balanceRecordsTable).values({
+    direction: "in",
+    category: "deposit",
+    amount: originalAmount.toFixed(2),
+    balance: (prevBal + originalAmount).toFixed(2),
+    description: `입금 확인 - ${tx.trackingNumber} (수수료 ${feeAmount.toLocaleString("ko-KR")}원)`,
+    userId: member?.storeId ?? null,
+  });
 
   res.json({ success: true, id: updated.id, status: updated.status, fee: feeAmount, amount: netAmount });
 });

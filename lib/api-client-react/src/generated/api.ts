@@ -22,6 +22,8 @@ import type {
   AdminUserList,
   AdminUserUpdate,
   AuthResponse,
+  BalanceRecord,
+  BalanceRecordInput,
   BalanceRecordList,
   BalanceSummary,
   ConfirmTransaction200,
@@ -2468,6 +2470,92 @@ export function useListBalanceRecords<
 
   return { ...query, queryKey: queryOptions.queryKey };
 }
+
+/**
+ * @summary Create manual balance record (충전/조정)
+ */
+export const getCreateBalanceRecordUrl = () => {
+  return `/api/balances`;
+};
+
+export const createBalanceRecord = async (
+  balanceRecordInput: BalanceRecordInput,
+  options?: RequestInit,
+): Promise<BalanceRecord> => {
+  return customFetch<BalanceRecord>(getCreateBalanceRecordUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(balanceRecordInput),
+  });
+};
+
+export const getCreateBalanceRecordMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createBalanceRecord>>,
+    TError,
+    { data: BodyType<BalanceRecordInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createBalanceRecord>>,
+  TError,
+  { data: BodyType<BalanceRecordInput> },
+  TContext
+> => {
+  const mutationKey = ["createBalanceRecord"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createBalanceRecord>>,
+    { data: BodyType<BalanceRecordInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createBalanceRecord(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateBalanceRecordMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createBalanceRecord>>
+>;
+export type CreateBalanceRecordMutationBody = BodyType<BalanceRecordInput>;
+export type CreateBalanceRecordMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create manual balance record (충전/조정)
+ */
+export const useCreateBalanceRecord = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createBalanceRecord>>,
+    TError,
+    { data: BodyType<BalanceRecordInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createBalanceRecord>>,
+  TError,
+  { data: BodyType<BalanceRecordInput> },
+  TContext
+> => {
+  return useMutation(getCreateBalanceRecordMutationOptions(options));
+};
 
 /**
  * @summary Get balance summary (잔액, 지급보류)

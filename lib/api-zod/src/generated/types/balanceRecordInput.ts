@@ -6,15 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface BalanceRecord {
-  id: number;
+export interface BalanceRecordInput {
   /** in | out */
   direction: string;
-  /** deposit | withdrawal | charge | adjustment | payment */
+  /** charge | adjustment */
   category: string;
   amount: number;
-  balance: number;
-  /** @nullable */
-  description?: string | null;
-  createdAt: string;
+  description?: string;
 }

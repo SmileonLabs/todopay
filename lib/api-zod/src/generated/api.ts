@@ -549,7 +549,9 @@ export const ListBalanceRecordsResponse = zod.object({
     zod.object({
       id: zod.number(),
       direction: zod.string().describe("in | out"),
-      category: zod.string().describe("withdrawal | payment"),
+      category: zod
+        .string()
+        .describe("deposit | withdrawal | charge | adjustment | payment"),
       amount: zod.number(),
       balance: zod.number(),
       description: zod.string().nullish(),
@@ -557,6 +559,16 @@ export const ListBalanceRecordsResponse = zod.object({
     }),
   ),
   total: zod.number(),
+});
+
+/**
+ * @summary Create manual balance record (충전/조정)
+ */
+export const CreateBalanceRecordBody = zod.object({
+  direction: zod.string().describe("in | out"),
+  category: zod.string().describe("charge | adjustment"),
+  amount: zod.number(),
+  description: zod.string().optional(),
 });
 
 /**

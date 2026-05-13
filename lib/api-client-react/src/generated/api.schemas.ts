@@ -221,13 +221,22 @@ export interface BalanceRecord {
   id: number;
   /** in | out */
   direction: string;
-  /** withdrawal | payment */
+  /** deposit | withdrawal | charge | adjustment | payment */
   category: string;
   amount: number;
   balance: number;
   /** @nullable */
   description?: string | null;
   createdAt: string;
+}
+
+export interface BalanceRecordInput {
+  /** in | out */
+  direction: string;
+  /** charge | adjustment */
+  category: string;
+  amount: number;
+  description?: string;
 }
 
 export interface BalanceRecordList {
