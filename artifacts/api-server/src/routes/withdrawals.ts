@@ -143,19 +143,7 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
   if (!w) { res.status(404).json({ error: "Not found" }); return; }
   if (w.approvalStatus !== "pending") { res.status(400).json({ error: "이미 처리된 출금입니다" }); return; }
 
-  // 가상계좌 잔액 차감
-  if (w.memberId) {
-    const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, w.memberId));
-    if (va) {
-      const newBalance = Number(va.balance) - Number(w.amount);
-      if (newBalance < 0) {
-        res.status(400).json({ error: "잔액이 부족합니다" }); return;
-      }
-      await db.update(virtualAccountsTable)
-        .set({ balance: newBalance.toFixed(2) })
-        .where(eq(virtualAccountsTable.id, va.id));
-    }
-  }
+  // 잔액은 신청 시점에 이미 예약 차감됨 — 승인 시 상태만 변경
 
   const [updated] = await db.update(withdrawalsTable)
     .set({ approvalStatus: "approved" })
@@ -181,11 +169,25 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const parsed = RejectWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+
+  const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+  if (existing.approvalStatus !== "pending") { res.status(400).json({ error: "이미 처리된 출금입니다" }); return; }
+
+  // 거절 시 예약 차감했던 잔액 복원
+  if (existing.memberId) {
+    const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, existing.memberId));
+    if (va) {
+      await db.update(virtualAccountsTable)
+        .set({ balance: (Number(va.balance) + Number(existing.amount)).toFixed(2) })
+        .where(eq(virtualAccountsTable.id, va.id));
+    }
+  }
+
   const [w] = await db.update(withdrawalsTable)
     .set({ approvalStatus: "rejected", rejectReason: parsed.data.reason })
     .where(eq(withdrawalsTable.id, id))
     .returning();
-  if (!w) { res.status(404).json({ error: "Not found" }); return; }
   res.json(await formatWithdrawal(w));
 });
 

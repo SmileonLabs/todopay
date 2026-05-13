@@ -215,8 +215,9 @@ router.post("/member/withdrawal-request", async (req, res) => {
 
   const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
   if (!va) { res.status(400).json({ error: "발급된 가상계좌가 없습니다" }); return; }
-  if (Number(va.balance) < Number(amount)) {
-    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${Number(va.balance).toLocaleString("ko-KR")}원)` }); return;
+  const currentBalance = Number(va.balance);
+  if (currentBalance < Number(amount)) {
+    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${currentBalance.toLocaleString("ko-KR")}원)` }); return;
   }
 
   // 수수료 조회 (매장 fee_configs.withdrawalFee)
@@ -229,6 +230,11 @@ router.post("/member/withdrawal-request", async (req, res) => {
 
   const fee = Math.round(Number(amount) * feeRate / 100);
   const totalAmount = Number(amount) - fee;
+
+  // 신청 즉시 잔액 예약 차감 (중복 신청 방지)
+  await db.update(virtualAccountsTable)
+    .set({ balance: (currentBalance - Number(amount)).toFixed(2) })
+    .where(eq(virtualAccountsTable.id, va.id));
 
   const [w] = await db.insert(withdrawalsTable).values({
     trackingNumber: generateId("WD"),

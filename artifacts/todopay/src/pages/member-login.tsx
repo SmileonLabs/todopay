@@ -333,7 +333,7 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">출금 은행</Label>
+                    <Label className="text-xs text-muted-foreground">보내는 은행</Label>
                     <select
                       value={fromBank}
                       onChange={(e) => setFromBank(e.target.value)}
@@ -344,7 +344,7 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">출금 계좌번호 <span className="text-red-400">*</span></Label>
+                    <Label className="text-xs text-muted-foreground">보내는 계좌번호 <span className="text-red-400">*</span></Label>
                     <Input
                       value={fromAccount}
                       onChange={(e) => setFromAccount(e.target.value.replace(/\D/g, ""))}
