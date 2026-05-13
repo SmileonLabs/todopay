@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, membersTable, virtualAccountsTable, adminUsersTable, transactionsTable } from "@workspace/db";
+import { db, membersTable, virtualAccountsTable, adminUsersTable, transactionsTable, withdrawalsTable, feeConfigsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
 const router = Router();
@@ -188,11 +188,100 @@ router.get("/member/deposits", async (req, res) => {
     items: deposits.map(t => ({
       id: t.id,
       amount: Number(t.amount),
+      originalAmount: Number(t.originalAmount),
+      fee: Number(t.fee),
       status: t.status,
       trackingNumber: t.trackingNumber,
       fromAccount: t.fromAccount,
       toAccount: t.toAccount,
       createdAt: t.createdAt.toISOString(),
+    })),
+  });
+});
+
+// 회원 출금 신청
+router.post("/member/withdrawal-request", async (req, res) => {
+  const member = await getMemberFromToken(req.headers.authorization);
+  if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const { amount, accountNumber, accountBank, accountHolder } = req.body as {
+    amount?: number; accountNumber?: string; accountBank?: string; accountHolder?: string;
+  };
+  if (!amount || Number(amount) <= 0) { res.status(400).json({ error: "금액을 올바르게 입력해주세요" }); return; }
+  if (Number(amount) < 1000) { res.status(400).json({ error: "최소 출금액은 1,000원입니다" }); return; }
+  if (!accountNumber?.trim()) { res.status(400).json({ error: "계좌번호를 입력해주세요" }); return; }
+  if (!accountBank?.trim()) { res.status(400).json({ error: "은행을 선택해주세요" }); return; }
+  if (!accountHolder?.trim()) { res.status(400).json({ error: "예금주를 입력해주세요" }); return; }
+
+  const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
+  if (!va) { res.status(400).json({ error: "발급된 가상계좌가 없습니다" }); return; }
+  if (Number(va.balance) < Number(amount)) {
+    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${Number(va.balance).toLocaleString("ko-KR")}원)` }); return;
+  }
+
+  // 수수료 조회 (매장 fee_configs.withdrawalFee)
+  let feeRate = 0;
+  const storeId = member.storeId ?? null;
+  if (storeId) {
+    const [feeConfig] = await db.select().from(feeConfigsTable).where(eq(feeConfigsTable.userId, storeId));
+    if (feeConfig) feeRate = Number(feeConfig.withdrawalFee);
+  }
+
+  const fee = Math.round(Number(amount) * feeRate / 100);
+  const totalAmount = Number(amount) - fee;
+
+  const [w] = await db.insert(withdrawalsTable).values({
+    trackingNumber: generateId("WD"),
+    amount: String(amount),
+    fee: String(fee),
+    totalAmount: String(totalAmount),
+    approvalStatus: "pending",
+    withdrawalStatus: "unpaid",
+    accountNumber: accountNumber.trim(),
+    accountBank: accountBank.trim(),
+    accountHolder: accountHolder.trim(),
+    memberId: member.id,
+    storeId,
+  }).returning();
+
+  res.status(201).json({
+    id: w.id,
+    trackingNumber: w.trackingNumber,
+    amount: Number(w.amount),
+    fee: Number(w.fee),
+    totalAmount: Number(w.totalAmount),
+    approvalStatus: w.approvalStatus,
+    accountNumber: w.accountNumber,
+    accountBank: w.accountBank,
+    accountHolder: w.accountHolder,
+    createdAt: w.createdAt.toISOString(),
+  });
+});
+
+// 회원 출금 내역 조회
+router.get("/member/withdrawals", async (req, res) => {
+  const member = await getMemberFromToken(req.headers.authorization);
+  if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const items = await db.select().from(withdrawalsTable)
+    .where(eq(withdrawalsTable.memberId, member.id))
+    .orderBy(sql`${withdrawalsTable.createdAt} desc`)
+    .limit(30);
+
+  res.json({
+    items: items.map(w => ({
+      id: w.id,
+      trackingNumber: w.trackingNumber,
+      amount: Number(w.amount),
+      fee: Number(w.fee),
+      totalAmount: Number(w.totalAmount),
+      approvalStatus: w.approvalStatus,
+      withdrawalStatus: w.withdrawalStatus,
+      accountNumber: w.accountNumber,
+      accountBank: w.accountBank,
+      accountHolder: w.accountHolder,
+      rejectReason: w.rejectReason ?? null,
+      createdAt: w.createdAt.toISOString(),
     })),
   });
 });

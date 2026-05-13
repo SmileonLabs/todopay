@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, withdrawalsTable, membersTable, adminUsersTable } from "@workspace/db";
+import { db, withdrawalsTable, membersTable, adminUsersTable, feeConfigsTable, virtualAccountsTable } from "@workspace/db";
 import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
 import { ListWithdrawalsQueryParams, CreateWithdrawalBody, RejectWithdrawalBody } from "@workspace/api-zod";
 import crypto from "crypto";
@@ -103,29 +103,67 @@ router.post("/withdrawals", async (req, res) => {
   const parsed = CreateWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const { amount, accountNumber, accountBank, accountHolder } = parsed.data;
-  const fee = amount * 0.01;
+
+  // memberId optional (not in OpenAPI spec, passed manually by admin)
+  const memberId: number | null = typeof req.body.memberId === "number" ? req.body.memberId : null;
+
+  let feeRate = 0;
+  let storeId: number | null = null;
+  if (memberId) {
+    const [member] = await db.select().from(membersTable).where(eq(membersTable.id, memberId));
+    if (member?.storeId) {
+      storeId = member.storeId;
+      const [feeConfig] = await db.select().from(feeConfigsTable).where(eq(feeConfigsTable.userId, member.storeId));
+      if (feeConfig) feeRate = Number(feeConfig.withdrawalFee);
+    }
+  }
+
+  const fee = Math.round(Number(amount) * feeRate / 100);
+  const totalAmount = Number(amount) - fee;
+
   const [w] = await db.insert(withdrawalsTable).values({
     trackingNumber: crypto.randomUUID().replace(/-/g, "").substring(0, 16).toUpperCase(),
     amount: String(amount),
     fee: String(fee),
-    totalAmount: String(amount + fee),
+    totalAmount: String(totalAmount),
     approvalStatus: "pending",
     withdrawalStatus: "unpaid",
     accountNumber,
     accountBank,
     accountHolder,
+    memberId,
+    storeId,
   }).returning();
   res.status(201).json(await formatWithdrawal(w));
 });
 
 router.post("/withdrawals/:id/approve", async (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const [w] = await db.update(withdrawalsTable)
+
+  const [w] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
+  if (!w) { res.status(404).json({ error: "Not found" }); return; }
+  if (w.approvalStatus !== "pending") { res.status(400).json({ error: "이미 처리된 출금입니다" }); return; }
+
+  // 가상계좌 잔액 차감
+  if (w.memberId) {
+    const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, w.memberId));
+    if (va) {
+      const newBalance = Number(va.balance) - Number(w.amount);
+      if (newBalance < 0) {
+        res.status(400).json({ error: "잔액이 부족합니다" }); return;
+      }
+      await db.update(virtualAccountsTable)
+        .set({ balance: newBalance.toFixed(2) })
+        .where(eq(virtualAccountsTable.id, va.id));
+    }
+  }
+
+  const [updated] = await db.update(withdrawalsTable)
     .set({ approvalStatus: "approved" })
     .where(eq(withdrawalsTable.id, id))
     .returning();
-  if (!w) { res.status(404).json({ error: "Not found" }); return; }
-  res.json(await formatWithdrawal(w));
+
+  res.json(await formatWithdrawal(updated));
 });
 
 router.post("/withdrawals/:id/reject", async (req, res) => {
