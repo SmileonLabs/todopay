@@ -18,8 +18,8 @@ router.get("/statistics/overview", async (req, res) => {
     .from(transactionsTable)
     .where(and(eq(transactionsTable.type, "deposit"), eq(transactionsTable.status, "success"), gte(transactionsTable.createdAt, todayStart)));
   const [todayWithdrawal] = await db.select({ amount: sql<number>`coalesce(sum(amount), 0)` })
-    .from(transactionsTable)
-    .where(and(eq(transactionsTable.type, "withdrawal"), eq(transactionsTable.status, "success"), gte(transactionsTable.createdAt, todayStart)));
+    .from(withdrawalsTable)
+    .where(and(gte(withdrawalsTable.createdAt, todayStart), sql`approval_status != 'rejected'`));
   const [todayFee] = await db.select({ amount: sql<number>`coalesce(sum(fee), 0)` })
     .from(transactionsTable)
     .where(and(eq(transactionsTable.status, "success"), gte(transactionsTable.createdAt, todayStart)));
@@ -27,8 +27,8 @@ router.get("/statistics/overview", async (req, res) => {
     .from(transactionsTable)
     .where(and(eq(transactionsTable.type, "deposit"), eq(transactionsTable.status, "success"), gte(transactionsTable.createdAt, monthStart)));
   const [monthWithdrawal] = await db.select({ amount: sql<number>`coalesce(sum(amount), 0)` })
-    .from(transactionsTable)
-    .where(and(eq(transactionsTable.type, "withdrawal"), eq(transactionsTable.status, "success"), gte(transactionsTable.createdAt, monthStart)));
+    .from(withdrawalsTable)
+    .where(and(gte(withdrawalsTable.createdAt, monthStart), sql`approval_status != 'rejected'`));
   const [totalMembers] = await db.select({ count: sql<number>`count(*)` }).from(membersTable);
   const [activeVA] = await db.select({ count: sql<number>`count(*)` }).from(virtualAccountsTable).where(eq(virtualAccountsTable.status, "active"));
   const [pendingW] = await db.select({ count: sql<number>`count(*)` }).from(withdrawalsTable).where(eq(withdrawalsTable.approvalStatus, "pending"));
@@ -60,12 +60,18 @@ router.get("/statistics/daily", async (req, res) => {
     ? new Date(params.endDate + "T23:59:59.999Z")
     : new Date();
 
-  const conditions = [
-    gte(transactionsTable.createdAt, startDate),
-    lte(transactionsTable.createdAt, endDate),
-    eq(transactionsTable.status, "success"),
-  ];
-  const txs = await db.select().from(transactionsTable).where(and(...conditions));
+  const [txs, wds] = await Promise.all([
+    db.select().from(transactionsTable).where(and(
+      gte(transactionsTable.createdAt, startDate),
+      lte(transactionsTable.createdAt, endDate),
+      eq(transactionsTable.status, "success"),
+    )),
+    db.select().from(withdrawalsTable).where(and(
+      gte(withdrawalsTable.createdAt, startDate),
+      lte(withdrawalsTable.createdAt, endDate),
+      sql`approval_status != 'rejected'`,
+    )),
+  ]);
 
   const byDate = new Map<string, {
     depositCount: number;
@@ -76,8 +82,7 @@ router.get("/statistics/daily", async (req, res) => {
     feeAmount: number;
   }>();
 
-  for (const t of txs) {
-    const date = t.createdAt.toISOString().split("T")[0];
+  const ensureDate = (date: string) => {
     if (!byDate.has(date)) {
       byDate.set(date, {
         depositCount: 0,
@@ -88,16 +93,23 @@ router.get("/statistics/daily", async (req, res) => {
         feeAmount: 0,
       });
     }
-    const d = byDate.get(date)!;
-    if (t.type === "deposit") {
-      d.depositCount++;
-      d.depositAmount += Number(t.amount);
-      d.depositOriginalAmount += Number(t.originalAmount);
-    } else {
-      d.withdrawalCount++;
-      d.withdrawalAmount += Number(t.amount);
-    }
+    return byDate.get(date)!;
+  };
+
+  for (const t of txs) {
+    const date = t.createdAt.toISOString().split("T")[0];
+    const d = ensureDate(date);
+    d.depositCount++;
+    d.depositAmount += Number(t.amount);
+    d.depositOriginalAmount += Number(t.originalAmount);
     d.feeAmount += Number(t.fee);
+  }
+
+  for (const w of wds) {
+    const date = w.createdAt.toISOString().split("T")[0];
+    const d = ensureDate(date);
+    d.withdrawalCount++;
+    d.withdrawalAmount += Number(w.amount);
   }
 
   const result = Array.from(byDate.entries())
