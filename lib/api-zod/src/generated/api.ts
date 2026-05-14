@@ -593,6 +593,50 @@ export const GetBalanceSummaryResponse = zod.object({
 });
 
 /**
+ * @summary Get settlement summary (role-aware)
+ */
+export const GetSettlementSummaryQueryParams = zod.object({
+  startDate: zod.coerce.string().optional(),
+  endDate: zod.coerce.string().optional(),
+});
+
+export const GetSettlementSummaryResponse = zod.object({
+  type: zod.enum(["income", "expense"]),
+  totalIncome: zod.number().optional(),
+  totalDeposit: zod.number().optional(),
+  totalFee: zod.number().optional(),
+  totalNet: zod.number().optional(),
+  txCount: zod.number().optional(),
+  recordCount: zod.number().optional(),
+});
+
+/**
+ * @summary List settlement records (role-aware)
+ */
+export const ListSettlementRecordsQueryParams = zod.object({
+  startDate: zod.coerce.string().optional(),
+  endDate: zod.coerce.string().optional(),
+  page: zod.coerce.number().optional(),
+  limit: zod.coerce.number().optional(),
+});
+
+export const ListSettlementRecordsResponse = zod.object({
+  type: zod.enum(["income", "expense"]),
+  items: zod.array(
+    zod.object({
+      id: zod.number(),
+      amount: zod.number().nullish(),
+      description: zod.string().nullish(),
+      originalAmount: zod.number().nullish(),
+      fee: zod.number().nullish(),
+      trackingNumber: zod.string().nullish(),
+      createdAt: zod.string(),
+    }),
+  ),
+  total: zod.number(),
+});
+
+/**
  * @summary List fee configurations for subordinates by role
  */
 export const ListFeesQueryParams = zod.object({

@@ -12,6 +12,7 @@ import feesRouter from "./fees";
 import statisticsRouter from "./statistics";
 import noticesRouter from "./notices";
 import otpRouter from "./otp";
+import settlementsRouter from "./settlements";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -27,5 +28,6 @@ router.use(feesRouter);
 router.use(statisticsRouter);
 router.use(noticesRouter);
 router.use(otpRouter);
+router.use(settlementsRouter);
 
 export default router;

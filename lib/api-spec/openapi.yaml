@@ -692,6 +692,59 @@ paths:
               schema:
                 $ref: "#/components/schemas/BalanceSummary"
 
+  # Settlements (수수료 정산)
+  /settlements/summary:
+    get:
+      operationId: getSettlementSummary
+      tags: [settlements]
+      summary: Get settlement summary (role-aware)
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Settlement summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementSummary"
+
+  /settlements/records:
+    get:
+      operationId: listSettlementRecords
+      tags: [settlements]
+      summary: List settlement records (role-aware)
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Settlement records
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettlementRecordList"
+
   # Fees (수수료 설정)
   /fees:
     get:
@@ -1351,6 +1404,65 @@ components:
           type: number
         pendingAmount:
           type: number
+
+    # Settlements
+    SettlementSummary:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [income, expense]
+        totalIncome:
+          type: number
+        totalDeposit:
+          type: number
+        totalFee:
+          type: number
+        totalNet:
+          type: number
+        txCount:
+          type: integer
+        recordCount:
+          type: integer
+
+    SettlementRecord:
+      type: object
+      required: [id, createdAt]
+      properties:
+        id:
+          type: integer
+        amount:
+          type: number
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        originalAmount:
+          type: number
+          nullable: true
+        fee:
+          type: number
+          nullable: true
+        trackingNumber:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+
+    SettlementRecordList:
+      type: object
+      required: [type, items, total]
+      properties:
+        type:
+          type: string
+          enum: [income, expense]
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SettlementRecord"
+        total:
+          type: integer
 
     # Fees
     FeeListItem:

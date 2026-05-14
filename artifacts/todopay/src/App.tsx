@@ -20,6 +20,7 @@ import Otp from "./pages/otp";
 import Profile from "./pages/profile";
 import MemberRegister from "./pages/member-register";
 import MemberLogin from "./pages/member-login";
+import Settlement from "./pages/settlement";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -58,6 +59,9 @@ function Router() {
       </Route>
       <Route path="/balances">
         <Layout><Balances /></Layout>
+      </Route>
+      <Route path="/settlement">
+        <Layout><Settlement /></Layout>
       </Route>
       <Route path="/members">
         <Layout><Members /></Layout>

@@ -255,6 +255,48 @@ export interface BalanceSummary {
   pendingAmount: number;
 }
 
+export type SettlementSummaryType =
+  (typeof SettlementSummaryType)[keyof typeof SettlementSummaryType];
+
+export const SettlementSummaryType = {
+  income: "income",
+  expense: "expense",
+} as const;
+
+export interface SettlementSummary {
+  type: SettlementSummaryType;
+  totalIncome?: number;
+  totalDeposit?: number;
+  totalFee?: number;
+  totalNet?: number;
+  txCount?: number;
+  recordCount?: number;
+}
+
+export interface SettlementRecord {
+  id: number;
+  amount?: number | null;
+  description?: string | null;
+  originalAmount?: number | null;
+  fee?: number | null;
+  trackingNumber?: string | null;
+  createdAt: string;
+}
+
+export type SettlementRecordListType =
+  (typeof SettlementRecordListType)[keyof typeof SettlementRecordListType];
+
+export const SettlementRecordListType = {
+  income: "income",
+  expense: "expense",
+} as const;
+
+export interface SettlementRecordList {
+  type: SettlementRecordListType;
+  items: SettlementRecord[];
+  total: number;
+}
+
 export interface FeeListItem {
   userId: number;
   userLoginId: string;
@@ -437,6 +479,18 @@ export type ListBalanceRecordsParams = {
   startDate?: string;
   endDate?: string;
   type?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type GetSettlementSummaryParams = {
+  startDate?: string;
+  endDate?: string;
+};
+
+export type ListSettlementRecordsParams = {
+  startDate?: string;
+  endDate?: string;
   page?: number;
   limit?: number;
 };

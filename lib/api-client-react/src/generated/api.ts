@@ -33,11 +33,13 @@ import type {
   FeeConfigUpdate,
   FeeListItem,
   GetDailyStatisticsParams,
+  GetSettlementSummaryParams,
   HealthStatus,
   ListBalanceRecordsParams,
   ListFeesParams,
   ListMembersParams,
   ListNoticesParams,
+  ListSettlementRecordsParams,
   ListTransactionsParams,
   ListUsersParams,
   ListVirtualAccountsParams,
@@ -56,6 +58,8 @@ import type {
   RegisterLink,
   RejectInput,
   ResetPasswordInput,
+  SettlementRecordList,
+  SettlementSummary,
   StatisticsOverview,
   StatusUpdate,
   TransactionList,
@@ -2624,6 +2628,209 @@ export function useGetBalanceSummary<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetBalanceSummaryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get settlement summary (role-aware)
+ */
+export const getGetSettlementSummaryUrl = (
+  params?: GetSettlementSummaryParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/settlements/summary?${stringifiedParams}`
+    : `/api/settlements/summary`;
+};
+
+export const getSettlementSummary = async (
+  params?: GetSettlementSummaryParams,
+  options?: RequestInit,
+): Promise<SettlementSummary> => {
+  return customFetch<SettlementSummary>(getGetSettlementSummaryUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetSettlementSummaryQueryKey = (
+  params?: GetSettlementSummaryParams,
+) => {
+  return [`/api/settlements/summary`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetSettlementSummaryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSettlementSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetSettlementSummaryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSettlementSummary>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetSettlementSummaryQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getSettlementSummary>>
+  > = ({ signal }) =>
+    getSettlementSummary(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSettlementSummary>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetSettlementSummaryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getSettlementSummary>>
+>;
+export type GetSettlementSummaryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get settlement summary (role-aware)
+ */
+
+export function useGetSettlementSummary<
+  TData = Awaited<ReturnType<typeof getSettlementSummary>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetSettlementSummaryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getSettlementSummary>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetSettlementSummaryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary List settlement records (role-aware)
+ */
+export const getListSettlementRecordsUrl = (
+  params?: ListSettlementRecordsParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/settlements/records?${stringifiedParams}`
+    : `/api/settlements/records`;
+};
+
+export const listSettlementRecords = async (
+  params?: ListSettlementRecordsParams,
+  options?: RequestInit,
+): Promise<SettlementRecordList> => {
+  return customFetch<SettlementRecordList>(
+    getListSettlementRecordsUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getListSettlementRecordsQueryKey = (
+  params?: ListSettlementRecordsParams,
+) => {
+  return [`/api/settlements/records`, ...(params ? [params] : [])] as const;
+};
+
+export const getListSettlementRecordsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSettlementRecords>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSettlementRecordsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listSettlementRecords>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getListSettlementRecordsQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof listSettlementRecords>>
+  > = ({ signal }) =>
+    listSettlementRecords(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSettlementRecords>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSettlementRecordsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listSettlementRecords>>
+>;
+export type ListSettlementRecordsQueryError = ErrorType<unknown>;
+
+/**
+ * @summary List settlement records (role-aware)
+ */
+
+export function useListSettlementRecords<
+  TData = Awaited<ReturnType<typeof listSettlementRecords>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSettlementRecordsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof listSettlementRecords>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSettlementRecordsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;
