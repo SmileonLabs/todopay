@@ -26,14 +26,16 @@ import { useQueryClient } from "@tanstack/react-query";
 const CATEGORY_LABEL: Record<string, string> = {
   deposit:    "입금확인",
   withdrawal: "출금승인",
+  refund:     "반려복원",
   charge:     "충전",
   adjustment: "조정",
-  payment:    "결제",
+  payment:    "수수료수당",
 };
 
 const CATEGORY_COLOR: Record<string, string> = {
   deposit:    "bg-blue-500/20 text-blue-400 border-blue-500/30",
   withdrawal: "bg-red-500/20 text-red-400 border-red-500/30",
+  refund:     "bg-amber-500/20 text-amber-400 border-amber-500/30",
   charge:     "bg-green-500/20 text-green-400 border-green-500/30",
   adjustment: "bg-purple-500/20 text-purple-400 border-purple-500/30",
   payment:    "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",

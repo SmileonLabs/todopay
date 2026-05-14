@@ -84,7 +84,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
     { href: "/withdrawals", label: "출금 관리", icon: ArrowDownToLine },
     { href: "/transactions", label: "입출금 내역", icon: ArrowRightLeft },
-    { href: "/balances", label: "충전금액 관리", icon: Wallet },
+    { href: "/balances", label: "잔액 기록", icon: Wallet },
     { href: "/members", label: "회원 관리", icon: Users },
     { href: "/users", label: "하부 조직 관리", icon: ShieldCheck },
     { href: "/fees", label: "수수료 설정", icon: Receipt },

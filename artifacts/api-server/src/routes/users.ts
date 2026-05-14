@@ -103,7 +103,13 @@ router.get("/users", async (req, res) => {
   const offset = (page - 1) * limit;
 
   const conditions = [];
-  if (params.role) conditions.push(eq(adminUsersTable.role, params.role));
+  // superadmin은 하부 조직 관리 목록에서 제외 (자기 자신을 관리하는 화면이 아님)
+  // role 필터가 명시된 경우에도 superadmin 제외 유지
+  if (params.role) {
+    conditions.push(eq(adminUsersTable.role, params.role));
+  } else {
+    conditions.push(sql`${adminUsersTable.role} != 'superadmin'`);
+  }
   if (params.parentId !== undefined && params.parentId !== null) {
     conditions.push(eq(adminUsersTable.parentId, params.parentId));
   }

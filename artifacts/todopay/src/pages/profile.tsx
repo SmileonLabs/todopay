@@ -41,7 +41,6 @@ export default function Profile() {
 
   const [name, setName] = useState(user?.name ?? "");
   const [nameEditing, setNameEditing] = useState(false);
-  const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
 
@@ -78,7 +77,6 @@ export default function Profile() {
     resetPw.mutate({ id: user.id, data: { newPassword: newPw } }, {
       onSuccess: () => {
         toast({ title: "비밀번호가 변경됐습니다" });
-        setCurrentPw("");
         setNewPw("");
         setConfirmPw("");
       },
