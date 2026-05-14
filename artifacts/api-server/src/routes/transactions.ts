@@ -1,10 +1,25 @@
 import { Router } from "express";
 import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable, feeConfigsTable, balanceRecordsTable, storeBalancesTable } from "@workspace/db";
-import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
+import { eq, ilike, and, or, sql, gte, lte, inArray } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
 
 const router = Router();
+
+async function getAccessibleStoreIds(caller: typeof adminUsersTable.$inferSelect): Promise<number[] | null> {
+  if (caller.role === "superadmin") return null;
+  if (caller.role === "store") return [caller.id];
+  const result = await db.execute(sql`
+    WITH RECURSIVE descendants AS (
+      SELECT id, role FROM admin_users WHERE id = ${caller.id}
+      UNION ALL
+      SELECT au.id, au.role FROM admin_users au
+      JOIN descendants d ON au.parent_id = d.id
+    )
+    SELECT id FROM descendants WHERE role = 'store'
+  `);
+  return (result as unknown as { rows: Array<{ id: number }> }).rows.map(r => Number(r.id));
+}
 
 router.get("/transactions", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
@@ -17,10 +32,34 @@ router.get("/transactions", async (req, res) => {
   const offset = (page - 1) * limit;
 
   const conditions = [];
-  if (params.type) conditions.push(eq(transactionsTable.type, params.type));
-  if ((params as { status?: string }).status)
-    conditions.push(eq(transactionsTable.status, (params as { status?: string }).status!));
-  if ((params as { storeId?: number }).storeId) {
+
+  // 역할별 접근 가능한 매장 → 회원 필터링 (API 레벨 강제)
+  const accessibleStoreIds = await getAccessibleStoreIds(caller);
+  if (accessibleStoreIds !== null) {
+    if (accessibleStoreIds.length === 0) {
+      res.json({ items: [], total: 0 });
+      return;
+    }
+    const paramStoreId = (params as { storeId?: number }).storeId;
+    const storeIdsToUse = paramStoreId
+      ? (accessibleStoreIds.includes(paramStoreId) ? [paramStoreId] : [])
+      : accessibleStoreIds;
+    if (storeIdsToUse.length === 0) {
+      res.json({ items: [], total: 0 });
+      return;
+    }
+    const storeMembers = await db
+      .select({ id: membersTable.id })
+      .from(membersTable)
+      .where(inArray(membersTable.storeId, storeIdsToUse));
+    const ids = storeMembers.map(m => m.id);
+    if (ids.length === 0) {
+      res.json({ items: [], total: 0 });
+      return;
+    }
+    conditions.push(inArray(transactionsTable.memberId, ids));
+  } else if ((params as { storeId?: number }).storeId) {
+    // superadmin이 storeId 필터 명시한 경우
     const storeId = (params as { storeId?: number }).storeId!;
     const storeMembers = await db.select({ id: membersTable.id })
       .from(membersTable).where(eq(membersTable.storeId, storeId));
@@ -29,7 +68,7 @@ router.get("/transactions", async (req, res) => {
       res.json({ items: [], total: 0 });
       return;
     }
-    conditions.push(sql`${transactionsTable.memberId} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
+    conditions.push(inArray(transactionsTable.memberId, ids));
   }
   if (params.startDate) conditions.push(gte(transactionsTable.createdAt, new Date(params.startDate)));
   if (params.endDate) conditions.push(lte(transactionsTable.createdAt, new Date(params.endDate)));
