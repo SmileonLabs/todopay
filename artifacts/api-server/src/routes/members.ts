@@ -2,9 +2,19 @@ import { Router } from "express";
 import { db, membersTable, virtualAccountsTable, adminUsersTable } from "@workspace/db";
 import { eq, ilike, and, or, inArray, sql } from "drizzle-orm";
 import { ListMembersQueryParams, CreateMemberBody, UpdateMemberBody, UpdateMemberStatusBody } from "@workspace/api-zod";
-import { requireAdmin, hashPassword } from "../lib/auth.js";
+import { requireAdmin } from "../lib/auth.js";
 
 const router = Router();
+
+function simpleHash(password: string): string {
+  let hash = 0;
+  for (let i = 0; i < password.length; i++) {
+    const char = password.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return hash.toString(36);
+}
 
 const BANKS = ["국민은행", "신한은행", "우리은행", "하나은행", "기업은행", "농협은행", "카카오뱅크"];
 
@@ -120,7 +130,7 @@ router.post("/members", async (req, res) => {
   await db.transaction(async (dbtx) => {
     const [m] = await dbtx.insert(membersTable).values({
       loginId,
-      passwordHash: await hashPassword(password),
+      passwordHash: simpleHash(password),
       name,
       phone,
       email: email ?? null,

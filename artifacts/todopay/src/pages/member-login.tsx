@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Loader2, Landmark, CopyCheck, Copy, LogOut, ShieldCheck, Clock,
-  ArrowDownCircle, History, ChevronRight, AlertCircle, CheckCircle2, ShoppingCart,
+  History, ChevronRight, AlertCircle, CheckCircle2, ShoppingCart,
 } from "lucide-react";
 
 const MEMBER_TOKEN_KEY = "todopay_member_token";
