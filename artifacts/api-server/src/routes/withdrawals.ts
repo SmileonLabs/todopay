@@ -114,6 +114,18 @@ router.get("/withdrawals", async (req, res) => {
   });
 });
 
+// 매장 잔액 조회: 출금 폼에서 잔액 표시용
+router.get("/store/:id/balance", async (req, res) => {
+  const storeId = parseInt(req.params.id, 10);
+  if (isNaN(storeId)) { res.status(400).json({ error: "잘못된 매장 ID" }); return; }
+
+  const [store] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, storeId));
+  if (!store || store.role !== "store") { res.status(404).json({ error: "매장을 찾을 수 없습니다" }); return; }
+
+  const [sb] = await db.select().from(storeBalancesTable).where(eq(storeBalancesTable.storeId, storeId));
+  res.json({ storeId, balance: sb ? Number(sb.balance) : 0 });
+});
+
 // 매장 출금 신청: 잔액 차감 + 출금 레코드 생성을 DB 트랜잭션으로 묶어 원자적 처리
 router.post("/withdrawals", async (req, res) => {
   const parsed = CreateWithdrawalBody.safeParse(req.body);
