@@ -114,7 +114,7 @@ router.get("/withdrawals", async (req, res) => {
   });
 });
 
-// 매장 출금 신청: 매장 잔액 차감 (정액 출금 수수료 적용) + availableAt 설정
+// 매장 출금 신청: 잔액 차감 + 출금 레코드 생성을 DB 트랜잭션으로 묶어 원자적 처리
 router.post("/withdrawals", async (req, res) => {
   const parsed = CreateWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
@@ -139,44 +139,64 @@ router.post("/withdrawals", async (req, res) => {
     res.status(400).json({ error: "출금 수수료보다 출금액이 커야 합니다" }); return;
   }
 
-  // 매장 잔액 원자적 차감: balance >= amount 조건
-  const deductResult = await db.execute(
-    sql`UPDATE store_balances
-        SET balance    = balance - ${Number(amount)},
-            updated_at = NOW()
-        WHERE store_id = ${storeId} AND balance >= ${Number(amount)}
-        RETURNING id`
-  );
-  if (!deductResult.rows || deductResult.rows.length === 0) {
-    const [sb] = await db.select().from(storeBalancesTable).where(eq(storeBalancesTable.storeId, storeId));
-    const currentBal = sb ? Number(sb.balance) : 0;
-    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${currentBal.toLocaleString("ko-KR")}원)` }); return;
+  const availableAt = getTomorrow10amKST();
+  const trackingNumber = crypto.randomUUID().replace(/-/g, "").substring(0, 16).toUpperCase();
+
+  // ── DB 트랜잭션: 잔액 차감 + 출금 레코드 생성 원자적 처리 ──
+  let newWithdrawal: typeof withdrawalsTable.$inferSelect | null = null;
+
+  try {
+    await db.transaction(async (dbtx) => {
+      // 1. 매장 잔액 원자적 차감: balance >= amount 조건
+      const deductResult = await dbtx.execute(
+        sql`UPDATE store_balances
+            SET balance    = balance - ${Number(amount)},
+                updated_at = NOW()
+            WHERE store_id = ${storeId} AND balance >= ${Number(amount)}
+            RETURNING id`
+      );
+      if (!deductResult.rows || deductResult.rows.length === 0) {
+        throw new Error("INSUFFICIENT_BALANCE");
+      }
+
+      // 2. 출금 레코드 생성
+      const [w] = await dbtx.insert(withdrawalsTable).values({
+        trackingNumber,
+        amount: String(amount),
+        fee: String(fee),
+        totalAmount: String(totalAmount),
+        approvalStatus: "pending",
+        withdrawalStatus: "unpaid",
+        accountNumber,
+        accountBank,
+        accountHolder,
+        storeId,
+        availableAt,
+      }).returning();
+
+      newWithdrawal = w;
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "INSUFFICIENT_BALANCE") {
+      const [sb] = await db.select().from(storeBalancesTable).where(eq(storeBalancesTable.storeId, storeId));
+      const currentBal = sb ? Number(sb.balance) : 0;
+      res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${currentBal.toLocaleString("ko-KR")}원)` });
+      return;
+    }
+    throw err;
   }
 
-  const availableAt = getTomorrow10amKST();
+  if (!newWithdrawal) {
+    res.status(500).json({ error: "출금 신청 처리 중 오류가 발생했습니다" }); return;
+  }
 
-  const [w] = await db.insert(withdrawalsTable).values({
-    trackingNumber: crypto.randomUUID().replace(/-/g, "").substring(0, 16).toUpperCase(),
-    amount: String(amount),
-    fee: String(fee),
-    totalAmount: String(totalAmount),
-    approvalStatus: "pending",
-    withdrawalStatus: "unpaid",
-    accountNumber,
-    accountBank,
-    accountHolder,
-    storeId,
-    availableAt,
-  }).returning();
-
-  res.status(201).json(await formatWithdrawal(w));
+  res.status(201).json(await formatWithdrawal(newWithdrawal));
 });
 
-// 출금 승인: 익일 10시 KST 이후만 가능, 원자적 pending → approved
+// 출금 승인: 익일 10시 KST 이후만 가능, 원자적 pending → approved + balance_records 기록
 router.post("/withdrawals/:id/approve", async (req, res) => {
   const id = parseInt(req.params.id, 10);
 
-  // availableAt 체크를 위해 먼저 조회
   const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
 
@@ -189,53 +209,87 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
     res.status(400).json({ error: `아직 출금 가능 시간이 아닙니다. ${formatted} 이후에 승인 가능합니다` }); return;
   }
 
-  // 원자적 상태 전환
-  const [updated] = await db.update(withdrawalsTable)
-    .set({ approvalStatus: "approved" })
-    .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
-    .returning();
+  let updated: typeof withdrawalsTable.$inferSelect | null = null;
+
+  await db.transaction(async (dbtx) => {
+    // 원자적 상태 전환
+    const [u] = await dbtx.update(withdrawalsTable)
+      .set({ approvalStatus: "approved" })
+      .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
+      .returning();
+
+    if (!u) throw new Error("ALREADY_PROCESSED");
+
+    // 출금 승인 감사 로그
+    await dbtx.insert(balanceRecordsTable).values({
+      direction: "out",
+      category: "withdrawal",
+      amount: u.amount,
+      balance: "0",
+      description: `출금 승인 - ${u.trackingNumber} (실지급 ${Number(u.totalAmount).toLocaleString("ko-KR")}원)`,
+      userId: u.storeId ?? null,
+    });
+
+    updated = u;
+  });
 
   if (!updated) {
     res.status(400).json({ error: "이미 처리된 출금입니다" }); return;
   }
 
-  await db.insert(balanceRecordsTable).values({
-    direction: "out",
-    category: "withdrawal",
-    amount: updated.amount,
-    balance: "0",
-    description: `출금 승인 - ${updated.trackingNumber} (실지급 ${Number(updated.totalAmount).toLocaleString("ko-KR")}원)`,
-    userId: updated.storeId ?? null,
-  });
-
   res.json(await formatWithdrawal(updated));
 });
 
-// 출금 반려: 원자적 pending → rejected + 매장 잔액 복원
+// 출금 반려: 원자적 pending → rejected + 매장 잔액 복원 + balance_records 기록
 router.post("/withdrawals/:id/reject", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const parsed = RejectWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
-  const [rejected] = await db.update(withdrawalsTable)
-    .set({ approvalStatus: "rejected", rejectReason: parsed.data.reason })
-    .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
-    .returning();
+  let rejected: typeof withdrawalsTable.$inferSelect | null = null;
 
-  if (!rejected) {
-    const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
-    if (!existing) { res.status(404).json({ error: "Not found" }); return; }
-    res.status(400).json({ error: "이미 처리된 출금입니다" }); return;
+  try {
+    await db.transaction(async (dbtx) => {
+      const [r] = await dbtx.update(withdrawalsTable)
+        .set({ approvalStatus: "rejected", rejectReason: parsed.data.reason })
+        .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
+        .returning();
+
+      if (!r) throw new Error("ALREADY_PROCESSED");
+
+      // 매장 잔액 복원
+      if (r.storeId) {
+        await dbtx.execute(sql`
+          UPDATE store_balances
+          SET balance    = balance + ${Number(r.amount)},
+              updated_at = NOW()
+          WHERE store_id = ${r.storeId}
+        `);
+
+        // 반려 감사 로그
+        await dbtx.insert(balanceRecordsTable).values({
+          direction: "in",
+          category: "refund",
+          amount: r.amount,
+          balance: "0",
+          description: `출금 반려 복원 - ${r.trackingNumber} (사유: ${parsed.data.reason})`,
+          userId: r.storeId,
+        });
+      }
+
+      rejected = r;
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "ALREADY_PROCESSED") {
+      const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
+      if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+      res.status(400).json({ error: "이미 처리된 출금입니다" }); return;
+    }
+    throw err;
   }
 
-  // 매장 잔액 복원
-  if (rejected.storeId) {
-    await db.execute(sql`
-      UPDATE store_balances
-      SET balance    = balance + ${Number(rejected.amount)},
-          updated_at = NOW()
-      WHERE store_id = ${rejected.storeId}
-    `);
+  if (!rejected) {
+    res.status(500).json({ error: "처리 중 오류가 발생했습니다" }); return;
   }
 
   res.json(await formatWithdrawal(rejected));

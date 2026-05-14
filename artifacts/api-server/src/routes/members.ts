@@ -18,7 +18,10 @@ function simpleHash(password: string): string {
 }
 
 function generateAccountNumber(): string {
-  return Array.from({ length: 11 }, () => Math.floor(Math.random() * 10)).join("");
+  // 날짜 prefix(6자리) + 랜덤(5자리)로 충돌 확률 대폭 감소
+  const datePart = new Date().toISOString().slice(2, 8).replace(/-/g, ""); // YYMMDD
+  const randPart = Array.from({ length: 5 }, () => Math.floor(Math.random() * 10)).join("");
+  return `${datePart}${randPart}`;
 }
 
 async function getAdminFromToken(authHeader: string | undefined) {
@@ -26,7 +29,7 @@ async function getAdminFromToken(authHeader: string | undefined) {
   try {
     const decoded = Buffer.from(authHeader.replace("Bearer ", ""), "base64").toString();
     const parts = decoded.split(":");
-    if (parts[0] === "m") return null; // member token — not admin
+    if (parts[0] === "m") return null;
     const id = parseInt(parts[0], 10);
     if (isNaN(id)) return null;
     const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, id));
@@ -99,8 +102,8 @@ router.get("/members", async (req, res) => {
   res.json({ items: formatted, total: Number(count) });
 });
 
-// POST /members — public (self-registration) OR admin
-// storeCode is required and validated in both cases.
+// POST /members — 회원 등록 (회원 자기 등록 또는 어드민 등록)
+// 회원 INSERT + 가상계좌 INSERT를 트랜잭션으로 묶어 원자적 처리
 router.post("/members", async (req, res) => {
   const parsed = CreateMemberBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
@@ -117,24 +120,37 @@ router.post("/members", async (req, res) => {
   const [existing] = await db.select().from(membersTable).where(eq(membersTable.loginId, loginId));
   if (existing) { res.status(409).json({ error: "이미 사용중인 아이디입니다" }); return; }
 
-  const [m] = await db.insert(membersTable).values({
-    loginId,
-    passwordHash: simpleHash(password),
-    name,
-    phone,
-    email: email ?? null,
-    storeCode,
-    storeId: store.id,
-    birthdate: birthdate ?? null,
-    isVerified: true,
-  }).returning();
-  await db.insert(virtualAccountsTable).values({
-    accountNumber: generateAccountNumber(),
-    bankName: BANKS[Math.floor(Math.random() * BANKS.length)],
-    status: "active",
-    memberId: m.id,
+  // 회원 + 가상계좌를 트랜잭션으로 묶어 원자적 생성
+  let createdMember: typeof membersTable.$inferSelect | null = null;
+
+  await db.transaction(async (dbtx) => {
+    const [m] = await dbtx.insert(membersTable).values({
+      loginId,
+      passwordHash: simpleHash(password),
+      name,
+      phone,
+      email: email ?? null,
+      storeCode,
+      storeId: store.id,
+      birthdate: birthdate ?? null,
+      isVerified: true,
+    }).returning();
+
+    await dbtx.insert(virtualAccountsTable).values({
+      accountNumber: generateAccountNumber(),
+      bankName: BANKS[Math.floor(Math.random() * BANKS.length)],
+      status: "active",
+      memberId: m.id,
+    });
+
+    createdMember = m;
   });
-  res.status(201).json(await formatMember(m));
+
+  if (!createdMember) {
+    res.status(500).json({ error: "회원 등록 중 오류가 발생했습니다" }); return;
+  }
+
+  res.status(201).json(await formatMember(createdMember));
 });
 
 // GET /members/:id — admin only
@@ -187,7 +203,7 @@ router.patch("/members/:id/status", async (req, res) => {
   res.json({ success: true });
 });
 
-// POST /members/:id/virtual-account — admin only
+// POST /members/:id/virtual-account — 가상계좌 재발급 (트랜잭션으로 원자적 처리)
 router.post("/members/:id/virtual-account", async (req, res) => {
   const caller = await getAdminFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -196,13 +212,20 @@ router.post("/members/:id/virtual-account", async (req, res) => {
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const [m] = await db.select().from(membersTable).where(eq(membersTable.id, id));
   if (!m) { res.status(404).json({ error: "Not found" }); return; }
-  await db.update(virtualAccountsTable).set({ status: "revoked" }).where(eq(virtualAccountsTable.memberId, id));
-  await db.insert(virtualAccountsTable).values({
-    accountNumber: generateAccountNumber(),
-    bankName: BANKS[Math.floor(Math.random() * BANKS.length)],
-    status: "active",
-    memberId: id,
+
+  // 기존 계좌 revoke + 신규 발급을 트랜잭션으로 원자적 처리
+  await db.transaction(async (dbtx) => {
+    await dbtx.update(virtualAccountsTable)
+      .set({ status: "revoked" })
+      .where(eq(virtualAccountsTable.memberId, id));
+    await dbtx.insert(virtualAccountsTable).values({
+      accountNumber: generateAccountNumber(),
+      bankName: BANKS[Math.floor(Math.random() * BANKS.length)],
+      status: "active",
+      memberId: id,
+    });
   });
+
   res.json(await formatMember(m));
 });
 
@@ -213,8 +236,15 @@ router.delete("/members/:id", async (req, res) => {
 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-  await db.update(virtualAccountsTable).set({ status: "revoked" }).where(eq(virtualAccountsTable.memberId, id));
-  await db.delete(membersTable).where(eq(membersTable.id, id));
+
+  // 계좌 revoke + 회원 삭제를 트랜잭션으로 처리
+  await db.transaction(async (dbtx) => {
+    await dbtx.update(virtualAccountsTable)
+      .set({ status: "revoked" })
+      .where(eq(virtualAccountsTable.memberId, id));
+    await dbtx.delete(membersTable).where(eq(membersTable.id, id));
+  });
+
   res.status(204).send();
 });
 
