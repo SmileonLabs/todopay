@@ -192,13 +192,15 @@ router.post("/transactions/:id/confirm", async (req, res) => {
       if (levelMarginRate > 0) {
         const levelAmount = Math.round(originalAmount * levelMarginRate / 100);
         if (levelAmount > 0) {
+          // 마진은 상위 계층(parentId)이 취득 — 하위 rate에서 자신의 rate를 뺀 차액
+          // 예) 매장5% → 대리점4%: 마진1%는 대리점 수익 (currentUser.parentId)
           await db.insert(balanceRecordsTable).values({
             direction: "in",
             category: "payment",
             amount: levelAmount.toFixed(2),
             balance: "0",
-            description: `이용수수료 수당 [${currentUserId}] - ${tx.trackingNumber} (마진 ${levelMarginRate}%)`,
-            userId: currentUserId,
+            description: `이용수수료 수당 [${currentUser.parentId}] - ${tx.trackingNumber} (마진 ${levelMarginRate}%)`,
+            userId: currentUser.parentId,
           });
         }
       }

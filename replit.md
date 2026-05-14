@@ -14,9 +14,10 @@
 
 ## Default credentials
 - superadmin / admin1234
-- hq_manager / password1
-- distributor1 / password1
-- store1 / password1
+- hq01 / test1234
+- dist01 / test1234
+- agency01 / test1234
+- store01 / test1234
 
 ## Stack
 
