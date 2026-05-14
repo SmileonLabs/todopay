@@ -1,10 +1,46 @@
 import { Router } from "express";
-import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable, feeConfigsTable, balanceRecordsTable, storeBalancesTable } from "@workspace/db";
+import { db, transactionsTable, membersTable, adminUsersTable, feeConfigsTable, balanceRecordsTable, storeBalancesTable } from "@workspace/db";
 import { eq, ilike, and, or, sql, gte, lte, inArray } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
 
 const router = Router();
+
+interface HierarchyInfo {
+  storeName: string | null;
+  storeId: number;
+  agencyName: string | null;
+  agencyId: number | null;
+  distributorName: string | null;
+  distributorId: number | null;
+  hqName: string | null;
+  hqId: number | null;
+}
+
+async function getStoreHierarchy(storeId: number): Promise<HierarchyInfo> {
+  const info: HierarchyInfo = {
+    storeName: null, storeId,
+    agencyName: null, agencyId: null,
+    distributorName: null, distributorId: null,
+    hqName: null, hqId: null,
+  };
+  let currentId: number | null = storeId;
+  let isFirst = true;
+  while (currentId !== null) {
+    const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, currentId));
+    if (!user) break;
+    if (isFirst) {
+      info.storeName = user.name;
+      isFirst = false;
+    } else {
+      if (user.role === "agency") { info.agencyName = user.name; info.agencyId = user.id; }
+      else if (user.role === "distributor") { info.distributorName = user.name; info.distributorId = user.id; }
+      else if (user.role === "hq") { info.hqName = user.name; info.hqId = user.id; }
+    }
+    currentId = user.parentId ?? null;
+  }
+  return info;
+}
 
 async function getAccessibleStoreIds(caller: typeof adminUsersTable.$inferSelect): Promise<number[] | null> {
   if (caller.role === "superadmin") return null;
@@ -12,6 +48,19 @@ async function getAccessibleStoreIds(caller: typeof adminUsersTable.$inferSelect
   const result = await db.execute(sql`
     WITH RECURSIVE descendants AS (
       SELECT id, role FROM admin_users WHERE id = ${caller.id}
+      UNION ALL
+      SELECT au.id, au.role FROM admin_users au
+      JOIN descendants d ON au.parent_id = d.id
+    )
+    SELECT id FROM descendants WHERE role = 'store'
+  `);
+  return (result as unknown as { rows: Array<{ id: number }> }).rows.map(r => Number(r.id));
+}
+
+async function getStoresUnderOrg(orgId: number): Promise<number[]> {
+  const result = await db.execute(sql`
+    WITH RECURSIVE descendants AS (
+      SELECT id, role FROM admin_users WHERE id = ${orgId}
       UNION ALL
       SELECT au.id, au.role FROM admin_users au
       JOIN descendants d ON au.parent_id = d.id
@@ -31,54 +80,60 @@ router.get("/transactions", async (req, res) => {
   const limit = Number(params.limit ?? 20);
   const offset = (page - 1) * limit;
 
+  const typedParams = params as {
+    storeId?: number;
+    agencyId?: number;
+    distributorId?: number;
+    type?: string;
+    status?: string;
+    startDate?: string;
+    endDate?: string;
+    search?: string;
+  };
+
+  const accessibleStoreIds = await getAccessibleStoreIds(caller);
+
+  let filterStoreIds: number[] | null = null;
+  if (typedParams.distributorId) {
+    filterStoreIds = await getStoresUnderOrg(typedParams.distributorId);
+  } else if (typedParams.agencyId) {
+    filterStoreIds = await getStoresUnderOrg(typedParams.agencyId);
+  } else if (typedParams.storeId) {
+    filterStoreIds = [typedParams.storeId];
+  }
+
+  let effectiveStoreIds: number[] | null;
+  if (accessibleStoreIds !== null && filterStoreIds !== null) {
+    effectiveStoreIds = filterStoreIds.filter(id => accessibleStoreIds.includes(id));
+  } else if (accessibleStoreIds !== null) {
+    effectiveStoreIds = accessibleStoreIds;
+  } else {
+    effectiveStoreIds = filterStoreIds;
+  }
+
   const conditions = [];
 
-  // 역할별 접근 가능한 매장 → 회원 필터링 (API 레벨 강제)
-  const accessibleStoreIds = await getAccessibleStoreIds(caller);
-  if (accessibleStoreIds !== null) {
-    if (accessibleStoreIds.length === 0) {
-      res.json({ items: [], total: 0 });
-      return;
-    }
-    const paramStoreId = (params as { storeId?: number }).storeId;
-    const storeIdsToUse = paramStoreId
-      ? (accessibleStoreIds.includes(paramStoreId) ? [paramStoreId] : [])
-      : accessibleStoreIds;
-    if (storeIdsToUse.length === 0) {
-      res.json({ items: [], total: 0 });
-      return;
-    }
-    const storeMembers = await db
-      .select({ id: membersTable.id })
-      .from(membersTable)
-      .where(inArray(membersTable.storeId, storeIdsToUse));
-    const ids = storeMembers.map(m => m.id);
-    if (ids.length === 0) {
-      res.json({ items: [], total: 0 });
-      return;
-    }
-    conditions.push(inArray(transactionsTable.memberId, ids));
-  } else if ((params as { storeId?: number }).storeId) {
-    // superadmin이 storeId 필터 명시한 경우
-    const storeId = (params as { storeId?: number }).storeId!;
+  if (effectiveStoreIds !== null) {
+    if (effectiveStoreIds.length === 0) { res.json({ items: [], total: 0 }); return; }
     const storeMembers = await db.select({ id: membersTable.id })
-      .from(membersTable).where(eq(membersTable.storeId, storeId));
+      .from(membersTable).where(inArray(membersTable.storeId, effectiveStoreIds));
     const ids = storeMembers.map(m => m.id);
-    if (ids.length === 0) {
-      res.json({ items: [], total: 0 });
-      return;
-    }
+    if (ids.length === 0) { res.json({ items: [], total: 0 }); return; }
     conditions.push(inArray(transactionsTable.memberId, ids));
   }
-  if (params.startDate) conditions.push(gte(transactionsTable.createdAt, new Date(params.startDate)));
-  if (params.endDate) conditions.push(lte(transactionsTable.createdAt, new Date(params.endDate)));
-  if (params.search) {
+
+  if (typedParams.type) conditions.push(eq(transactionsTable.type, typedParams.type));
+  if (typedParams.status) conditions.push(eq(transactionsTable.status, typedParams.status));
+  if (typedParams.startDate) conditions.push(gte(transactionsTable.createdAt, new Date(typedParams.startDate)));
+  if (typedParams.endDate) conditions.push(lte(transactionsTable.createdAt, new Date(typedParams.endDate)));
+  if (typedParams.search) {
     conditions.push(or(
-      ilike(transactionsTable.trackingNumber, `%${params.search}%`),
-      ilike(transactionsTable.fromAccount, `%${params.search}%`),
-      ilike(transactionsTable.toAccount, `%${params.search}%`)
+      ilike(transactionsTable.trackingNumber, `%${typedParams.search}%`),
+      ilike(transactionsTable.fromAccount, `%${typedParams.search}%`),
+      ilike(transactionsTable.toAccount, `%${typedParams.search}%`),
     )!);
   }
+
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [txs, [{ count }]] = await Promise.all([
@@ -86,12 +141,20 @@ router.get("/transactions", async (req, res) => {
     db.select({ count: sql<number>`count(*)` }).from(transactionsTable).where(where),
   ]);
 
-  const formatted = await Promise.all(txs.map(async (t) => {
-    let memberName: string | null = null;
-    if (t.memberId) {
-      const [m] = await db.select().from(membersTable).where(eq(membersTable.id, t.memberId));
-      memberName = m?.name ?? null;
-    }
+  const memberIds = [...new Set(txs.filter(t => t.memberId).map(t => t.memberId!))];
+  const members = memberIds.length > 0
+    ? await db.select().from(membersTable).where(inArray(membersTable.id, memberIds))
+    : [];
+  const memberMap = new Map(members.map(m => [m.id, m]));
+
+  const uniqueStoreIds = [...new Set(members.filter(m => m.storeId).map(m => m.storeId!))];
+  const hierarchyResults = await Promise.all(uniqueStoreIds.map(id => getStoreHierarchy(id)));
+  const hierarchyMap = new Map(hierarchyResults.map(h => [h.storeId, h]));
+
+  const formatted = txs.map((t) => {
+    const member = t.memberId ? memberMap.get(t.memberId) : undefined;
+    const storeId = member?.storeId ?? null;
+    const hierarchy = storeId ? hierarchyMap.get(storeId) : null;
     return {
       id: t.id,
       type: t.type,
@@ -103,11 +166,19 @@ router.get("/transactions", async (req, res) => {
       toAccount: t.toAccount,
       trackingNumber: t.trackingNumber,
       pgTransactionId: t.pgTransactionId,
-      memberName,
+      memberName: member?.name ?? null,
       memberId: t.memberId ?? null,
+      storeName: hierarchy?.storeName ?? null,
+      storeId: storeId ?? null,
+      agencyName: hierarchy?.agencyName ?? null,
+      agencyId: hierarchy?.agencyId ?? null,
+      distributorName: hierarchy?.distributorName ?? null,
+      distributorId: hierarchy?.distributorId ?? null,
+      hqName: hierarchy?.hqName ?? null,
+      hqId: hierarchy?.hqId ?? null,
       createdAt: t.createdAt.toISOString(),
     };
-  }));
+  });
 
   res.json({ items: formatted, total: Number(count) });
 });
@@ -130,9 +201,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   }
 
   if (caller.role === "store" && member) {
-    if (member.storeId !== caller.id) {
-      res.status(403).json({ error: "권한이 없습니다" }); return;
-    }
+    if (member.storeId !== caller.id) { res.status(403).json({ error: "권한이 없습니다" }); return; }
   }
 
   const originalAmount = Number(txCheck.originalAmount);
@@ -208,9 +277,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
       .where(and(eq(transactionsTable.id, txId), eq(transactionsTable.status, "pending")))
       .returning();
 
-    if (!updated) {
-      throw new Error("ALREADY_PROCESSED");
-    }
+    if (!updated) throw new Error("ALREADY_PROCESSED");
 
     if (storeId && netToStore > 0) {
       await dbtx.execute(sql`
@@ -247,9 +314,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     result = { id: updated.id, status: updated.status };
   });
 
-  if (!result) {
-    res.status(400).json({ error: "이미 처리된 거래입니다" }); return;
-  }
+  if (!result) { res.status(400).json({ error: "이미 처리된 거래입니다" }); return; }
 
   res.json({
     success: true,

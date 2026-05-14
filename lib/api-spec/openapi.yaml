@@ -581,6 +581,14 @@ paths:
           in: query
           schema:
             type: integer
+        - name: agencyId
+          in: query
+          schema:
+            type: integer
+        - name: distributorId
+          in: query
+          schema:
+            type: integer
         - name: search
           in: query
           schema:
@@ -1354,6 +1362,24 @@ components:
           type: string
         memberName:
           type: ["string", "null"]
+        memberId:
+          type: ["integer", "null"]
+        storeName:
+          type: ["string", "null"]
+        storeId:
+          type: ["integer", "null"]
+        agencyName:
+          type: ["string", "null"]
+        agencyId:
+          type: ["integer", "null"]
+        distributorName:
+          type: ["string", "null"]
+        distributorId:
+          type: ["integer", "null"]
+        hqName:
+          type: ["string", "null"]
+        hqId:
+          type: ["integer", "null"]
         createdAt:
           type: string
 

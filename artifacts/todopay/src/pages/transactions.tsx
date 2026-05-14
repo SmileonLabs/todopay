@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { useListTransactions, useConfirmTransaction } from "@workspace/api-client-react";
+import React, { useState, useMemo } from "react";
+import { useListTransactions, useConfirmTransaction, useListUsers } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { formatMoney, formatDate } from "@/lib/format";
-import { Loader2, Search, CheckCircle2, Clock } from "lucide-react";
+import { Loader2, Search, CheckCircle2, Clock, Building2 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 
@@ -25,16 +25,36 @@ const STATUS_COLORS: Record<string, string> = {
   failed: "bg-red-500/20 text-red-400 border-red-500/30",
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
 };
+const TYPE_LABELS: Record<string, string> = { deposit: "구매", withdrawal: "출금" };
+const STATUS_LABELS: Record<string, string> = { success: "완료", failed: "실패", pending: "확인대기" };
 
-const TYPE_LABELS: Record<string, string> = {
-  deposit: "구매",
-  withdrawal: "출금",
-};
-const STATUS_LABELS: Record<string, string> = {
-  success: "완료",
-  failed: "실패",
-  pending: "확인대기",
-};
+function StoreHierarchy({ storeName, agencyName, distributorName, hqName, userRole }: {
+  storeName: string | null | undefined;
+  agencyName: string | null | undefined;
+  distributorName: string | null | undefined;
+  hqName: string | null | undefined;
+  userRole: string;
+}) {
+  if (!storeName) return <span className="text-muted-foreground">-</span>;
+
+  const breadcrumbs: string[] = [];
+  if (userRole === "superadmin" || userRole === "hq") {
+    if (hqName) breadcrumbs.push(hqName);
+    if (distributorName) breadcrumbs.push(distributorName);
+    if (agencyName) breadcrumbs.push(agencyName);
+  } else if (userRole === "distributor") {
+    if (agencyName) breadcrumbs.push(agencyName);
+  }
+
+  return (
+    <div className="min-w-0">
+      <div className="font-medium text-sm truncate">{storeName}</div>
+      {breadcrumbs.length > 0 && (
+        <div className="text-[10px] text-muted-foreground truncate">{breadcrumbs.join(" › ")}</div>
+      )}
+    </div>
+  );
+}
 
 function PendingDeposits() {
   const { user } = useAuth();
@@ -84,7 +104,6 @@ function PendingDeposits() {
           <div className="text-center py-8 text-sm text-muted-foreground">확인 대기 중인 구매 신청이 없습니다</div>
         ) : (
           <>
-            {/* Mobile */}
             <div className="md:hidden divide-y divide-border/30">
               {items.map((t) => (
                 <div key={t.id} className="p-4 space-y-2">
@@ -92,6 +111,11 @@ function PendingDeposits() {
                     <div>
                       <p className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</p>
                       <p className="font-semibold mt-0.5">{t.memberName ?? "-"}</p>
+                      {t.storeName && (
+                        <p className="text-xs text-muted-foreground flex items-center gap-1">
+                          <Building2 className="h-3 w-3" />{t.storeName}
+                        </p>
+                      )}
                       <p className="text-xs text-muted-foreground">{formatDate(t.createdAt)}</p>
                     </div>
                     <div className="text-right">
@@ -115,13 +139,13 @@ function PendingDeposits() {
                 </div>
               ))}
             </div>
-            {/* Desktop */}
             <div className="hidden md:block">
               <Table>
                 <TableHeader>
                   <TableRow className="border-border/50 hover:bg-transparent">
                     <TableHead>추적번호</TableHead>
                     <TableHead>회원명</TableHead>
+                    {user?.role !== "store" && <TableHead>매장</TableHead>}
                     <TableHead>구매자 계좌</TableHead>
                     <TableHead>가상계좌</TableHead>
                     <TableHead className="text-right">구매금액</TableHead>
@@ -134,6 +158,17 @@ function PendingDeposits() {
                     <TableRow key={t.id} className="border-border/30">
                       <TableCell className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</TableCell>
                       <TableCell>{t.memberName ?? "-"}</TableCell>
+                      {user?.role !== "store" && (
+                        <TableCell>
+                          <StoreHierarchy
+                            storeName={t.storeName}
+                            agencyName={t.agencyName}
+                            distributorName={t.distributorName}
+                            hqName={t.hqName}
+                            userRole={user?.role ?? ""}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell className="font-mono text-xs">{t.fromAccount}</TableCell>
                       <TableCell className="font-mono text-xs">{t.toAccount}</TableCell>
                       <TableCell className="text-right font-bold text-primary">{formatMoney(t.originalAmount)}</TableCell>
@@ -158,23 +193,78 @@ function PendingDeposits() {
   );
 }
 
+function OrgFilterDropdown({
+  orgRole, label, value, onChange,
+}: {
+  orgRole: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const { data } = useListUsers({ role: orgRole, limit: 200 } as Parameters<typeof useListUsers>[0]);
+  const items = data?.items ?? [];
+
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="min-w-[130px]">
+        <SelectValue placeholder={`${label} 선택`} />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">전체 {label}</SelectItem>
+        {items.map((item) => (
+          <SelectItem key={item.id} value={String(item.id)}>
+            {item.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 export default function Transactions() {
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [type, setType] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [orgFilter, setOrgFilter] = useState("all");
   const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useListTransactions({
-    search: search || undefined,
-    type: type === "all" ? undefined : type,
-    startDate: startDate || undefined,
-    endDate: endDate || undefined,
-    page,
-    limit: 20,
-  });
+  const subOrgConfig = useMemo(() => {
+    if (!user || user.role === "store" || user.role === "agency") return null;
+    if (user.role === "distributor") return { role: "agency", label: "대리점", param: "agencyId" as const };
+    return { role: "distributor", label: "총판", param: "distributorId" as const };
+  }, [user?.role]);
 
+  const storeFilterConfig = useMemo(() => {
+    if (!user || user.role === "store") return null;
+    if (user.role === "agency") return { role: "store", label: "매장", param: "storeId" as const };
+    return null;
+  }, [user?.role]);
+
+  const queryParams = useMemo(() => {
+    const p: Record<string, unknown> = {
+      search: search || undefined,
+      type: type === "all" ? undefined : type,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      page,
+      limit: 20,
+    };
+    if (orgFilter !== "all") {
+      if (subOrgConfig) p[subOrgConfig.param] = Number(orgFilter);
+      else if (storeFilterConfig) p[storeFilterConfig.param] = Number(orgFilter);
+    }
+    return p;
+  }, [search, type, startDate, endDate, page, orgFilter, subOrgConfig, storeFilterConfig]);
+
+  const { data, isLoading } = useListTransactions(queryParams as Parameters<typeof useListTransactions>[0]);
   const totalPages = data ? Math.ceil(data.total / 20) : 1;
+
+  const handleOrgChange = (v: string) => { setOrgFilter(v); setPage(1); };
+
+  const showStoreCol = user?.role !== "store";
+  const colSpan = showStoreCol ? 11 : 10;
 
   return (
     <div className="space-y-5">
@@ -202,6 +292,25 @@ export default function Transactions() {
               <SelectItem value="withdrawal">출금</SelectItem>
             </SelectContent>
           </Select>
+
+          {/* 조직 필터 (역할에 따라 표시) */}
+          {subOrgConfig && (
+            <OrgFilterDropdown
+              orgRole={subOrgConfig.role}
+              label={subOrgConfig.label}
+              value={orgFilter}
+              onChange={handleOrgChange}
+            />
+          )}
+          {storeFilterConfig && (
+            <OrgFilterDropdown
+              orgRole={storeFilterConfig.role}
+              label={storeFilterConfig.label}
+              value={orgFilter}
+              onChange={handleOrgChange}
+            />
+          )}
+
           <div className="flex items-center gap-2 flex-wrap">
             <Input type="date" className="w-36 md:w-40" value={startDate} onChange={(e) => { setStartDate(e.target.value); setPage(1); }} />
             <span className="text-muted-foreground text-sm">~</span>
@@ -222,9 +331,19 @@ export default function Transactions() {
           <Card key={t.id} className="bg-card/50 border-border/50">
             <CardContent className="p-4 space-y-2">
               <div className="flex items-start justify-between gap-2">
-                <div>
+                <div className="min-w-0">
                   <p className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</p>
                   <p className="font-semibold mt-0.5">{t.memberName ?? "-"}</p>
+                  {showStoreCol && t.storeName && (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Building2 className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="text-xs text-muted-foreground truncate">
+                        {t.storeName}
+                        {t.agencyName && ` · ${t.agencyName}`}
+                        {t.distributorName && ` · ${t.distributorName}`}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   <Badge variant="outline" className={`text-xs ${TYPE_COLORS[t.type] ?? ""}`}>
@@ -267,6 +386,7 @@ export default function Transactions() {
                   <TableHead>추적번호</TableHead>
                   <TableHead>유형</TableHead>
                   <TableHead>회원명</TableHead>
+                  {showStoreCol && <TableHead>매장 / 소속</TableHead>}
                   <TableHead>구매자 계좌</TableHead>
                   <TableHead>가상계좌</TableHead>
                   <TableHead className="text-right">구매금액</TableHead>
@@ -286,6 +406,17 @@ export default function Transactions() {
                       </Badge>
                     </TableCell>
                     <TableCell>{t.memberName ?? "-"}</TableCell>
+                    {showStoreCol && (
+                      <TableCell className="max-w-[160px]">
+                        <StoreHierarchy
+                          storeName={t.storeName}
+                          agencyName={t.agencyName}
+                          distributorName={t.distributorName}
+                          hqName={t.hqName}
+                          userRole={user?.role ?? ""}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-mono text-xs">{t.fromAccount}</TableCell>
                     <TableCell className="font-mono text-xs">{t.toAccount}</TableCell>
                     <TableCell className="text-right font-medium">{formatMoney(t.originalAmount)}</TableCell>
@@ -301,7 +432,7 @@ export default function Transactions() {
                 ))}
                 {data?.items.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={colSpan} className="text-center py-10 text-muted-foreground">
                       구매 내역이 없습니다
                     </TableCell>
                   </TableRow>

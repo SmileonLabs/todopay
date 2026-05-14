@@ -21,5 +21,23 @@ export interface Transaction {
   pgTransactionId: string;
   /** @nullable */
   memberName?: string | null;
+  /** @nullable */
+  memberId?: number | null;
+  /** @nullable */
+  storeName?: string | null;
+  /** @nullable */
+  storeId?: number | null;
+  /** @nullable */
+  agencyName?: string | null;
+  /** @nullable */
+  agencyId?: number | null;
+  /** @nullable */
+  distributorName?: string | null;
+  /** @nullable */
+  distributorId?: number | null;
+  /** @nullable */
+  hqName?: string | null;
+  /** @nullable */
+  hqId?: number | null;
   createdAt: string;
 }

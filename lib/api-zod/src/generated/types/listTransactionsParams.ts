@@ -12,6 +12,8 @@ export type ListTransactionsParams = {
   type?: string;
   status?: string;
   storeId?: number;
+  agencyId?: number;
+  distributorId?: number;
   search?: string;
   page?: number;
   limit?: number;
