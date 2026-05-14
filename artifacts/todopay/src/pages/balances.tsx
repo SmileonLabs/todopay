@@ -108,7 +108,7 @@ export default function Balances() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">충전금액 관리</h1>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">잔액 기록</h1>
         <Button
           onClick={() => { setDialogOpen(true); setFormError(""); }}
           className="bg-primary text-black hover:bg-primary/90 gap-2"

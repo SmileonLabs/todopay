@@ -248,7 +248,7 @@ export default function Withdrawals() {
   const [rejectReason, setRejectReason] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
 
-  const canCreate = ["superadmin", "hq", "distributor", "agency", "store"].includes(user?.role ?? "");
+  const canCreate = user?.role === "store";
 
   const params = {
     search: search || undefined,

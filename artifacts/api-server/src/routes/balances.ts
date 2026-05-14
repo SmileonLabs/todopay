@@ -6,8 +6,10 @@ import { ListBalanceRecordsQueryParams } from "@workspace/api-zod";
 const router = Router();
 
 async function getRunningBalance(): Promise<number> {
-  const [last] = await db.select().from(balanceRecordsTable).orderBy(sql`created_at desc`).limit(1);
-  return Number(last?.balance ?? 0);
+  const [result] = await db.select({
+    balance: sql<string>`COALESCE(SUM(CASE WHEN direction = 'in' THEN amount ELSE -amount END), 0)`,
+  }).from(balanceRecordsTable);
+  return Number(result?.balance ?? 0);
 }
 
 router.get("/balances/summary", async (_req, res) => {

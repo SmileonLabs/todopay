@@ -102,13 +102,24 @@ router.get("/users", async (req, res) => {
   const limit = Number(params.limit ?? 100);
   const offset = (page - 1) * limit;
 
+  // 역할 계층: 자신의 역할 및 상위 역할은 하부 조직 목록에서 제외
+  const ROLE_LEVELS: Record<string, number> = {
+    superadmin: 0, hq: 1, distributor: 2, agency: 3, store: 4,
+  };
+  const callerLevel = ROLE_LEVELS[caller.role] ?? 0;
+  const excludedRoles = Object.entries(ROLE_LEVELS)
+    .filter(([, lvl]) => lvl <= callerLevel)
+    .map(([role]) => role);
+
   const conditions = [];
-  // superadmin은 하부 조직 관리 목록에서 제외 (자기 자신을 관리하는 화면이 아님)
-  // role 필터가 명시된 경우에도 superadmin 제외 유지
   if (params.role) {
+    // role 필터가 지정된 경우: 해당 role만 — 단, 제외 역할이면 빈 결과
+    if (excludedRoles.includes(params.role)) {
+      res.json({ items: [], total: 0 }); return;
+    }
     conditions.push(eq(adminUsersTable.role, params.role));
   } else {
-    conditions.push(sql`${adminUsersTable.role} != 'superadmin'`);
+    conditions.push(sql`${adminUsersTable.role} NOT IN (${sql.join(excludedRoles.map(r => sql`${r}`), sql`, `)})`);
   }
   if (params.parentId !== undefined && params.parentId !== null) {
     conditions.push(eq(adminUsersTable.parentId, params.parentId));
