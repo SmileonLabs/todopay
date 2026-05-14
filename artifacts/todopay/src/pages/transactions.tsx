@@ -161,7 +161,7 @@ export default function Transactions() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl md:text-3xl font-bold tracking-tight">입출금 내역</h1>
+      <h1 className="text-2xl md:text-3xl font-bold tracking-tight">구매 내역</h1>
 
       <PendingDeposits />
 

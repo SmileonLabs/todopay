@@ -84,7 +84,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const navItems = [
     { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
     { href: "/withdrawals", label: "출금 관리", icon: ArrowDownToLine },
-    { href: "/transactions", label: "입출금 내역", icon: ArrowRightLeft },
+    { href: "/transactions", label: "구매 내역", icon: ArrowRightLeft },
     { href: "/balances", label: "잔액 기록", icon: Wallet },
     { href: "/settlement", label: "수수료 정산", icon: PiggyBank },
     { href: "/members", label: "회원 관리", icon: Users },
