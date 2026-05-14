@@ -26,6 +26,16 @@ const STATUS_COLORS: Record<string, string> = {
   pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
 };
 
+const TYPE_LABELS: Record<string, string> = {
+  deposit: "구매",
+  withdrawal: "출금",
+};
+const STATUS_LABELS: Record<string, string> = {
+  success: "완료",
+  failed: "실패",
+  pending: "확인대기",
+};
+
 function PendingDeposits() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -42,7 +52,7 @@ function PendingDeposits() {
     setConfirmingId(id);
     try {
       await confirmMutation.mutateAsync({ id });
-      toast({ title: "입금 확인 처리 완료" });
+      toast({ title: "구매 확인 완료" });
       void refetch();
       void queryClient.invalidateQueries();
     } catch {
@@ -59,7 +69,7 @@ function PendingDeposits() {
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-semibold flex items-center gap-2">
           <Clock className="h-4 w-4 text-yellow-400" />
-          입금 대기 목록
+          구매 확인 대기
           {items.length > 0 && (
             <Badge variant="outline" className="ml-1 bg-yellow-500/20 text-yellow-400 border-yellow-500/30">
               {items.length}건
@@ -71,7 +81,7 @@ function PendingDeposits() {
         {isLoading ? (
           <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : items.length === 0 ? (
-          <div className="text-center py-8 text-sm text-muted-foreground">대기 중인 입금 신청이 없습니다</div>
+          <div className="text-center py-8 text-sm text-muted-foreground">확인 대기 중인 구매 신청이 없습니다</div>
         ) : (
           <>
             {/* Mobile */}
@@ -84,18 +94,23 @@ function PendingDeposits() {
                       <p className="font-semibold mt-0.5">{t.memberName ?? "-"}</p>
                       <p className="text-xs text-muted-foreground">{formatDate(t.createdAt)}</p>
                     </div>
-                    <p className="font-bold text-primary text-lg">{formatMoney(t.amount)}</p>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">구매금액</p>
+                      <p className="font-bold text-primary text-lg">{formatMoney(t.originalAmount)}</p>
+                    </div>
                   </div>
                   <div className="text-xs text-muted-foreground font-mono flex gap-2 flex-wrap">
+                    <span className="text-muted-foreground/60">구매자</span>
                     <span>{t.fromAccount}</span>
                     <span>→</span>
+                    <span className="text-muted-foreground/60">가상계좌</span>
                     <span>{t.toAccount}</span>
                   </div>
                   <Button onClick={() => void handleConfirm(t.id)} disabled={confirmingId === t.id}
                     className="w-full bg-green-600 hover:bg-green-700 text-white h-8 text-xs">
                     {confirmingId === t.id
                       ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />확인 처리</>}
+                      : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />구매 확인</>}
                   </Button>
                 </div>
               ))}
@@ -107,10 +122,10 @@ function PendingDeposits() {
                   <TableRow className="border-border/50 hover:bg-transparent">
                     <TableHead>추적번호</TableHead>
                     <TableHead>회원명</TableHead>
-                    <TableHead>출금계좌</TableHead>
-                    <TableHead>입금계좌</TableHead>
-                    <TableHead className="text-right">금액</TableHead>
-                    <TableHead>신청일시</TableHead>
+                    <TableHead>구매자 계좌</TableHead>
+                    <TableHead>가상계좌</TableHead>
+                    <TableHead className="text-right">구매금액</TableHead>
+                    <TableHead>구매일시</TableHead>
                     <TableHead className="text-center">처리</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -121,14 +136,14 @@ function PendingDeposits() {
                       <TableCell>{t.memberName ?? "-"}</TableCell>
                       <TableCell className="font-mono text-xs">{t.fromAccount}</TableCell>
                       <TableCell className="font-mono text-xs">{t.toAccount}</TableCell>
-                      <TableCell className="text-right font-bold text-primary">{formatMoney(t.amount)}</TableCell>
+                      <TableCell className="text-right font-bold text-primary">{formatMoney(t.originalAmount)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(t.createdAt)}</TableCell>
                       <TableCell className="text-center">
                         <Button size="sm" onClick={() => void handleConfirm(t.id)} disabled={confirmingId === t.id}
                           className="bg-green-600 hover:bg-green-700 text-white h-7 text-xs px-3">
                           {confirmingId === t.id
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />확인 처리</>}
+                            : <><CheckCircle2 className="h-3.5 w-3.5 mr-1" />구매 확인</>}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -159,23 +174,31 @@ export default function Transactions() {
     limit: 20,
   });
 
+  const totalPages = data ? Math.ceil(data.total / 20) : 1;
+
   return (
     <div className="space-y-5">
       <h1 className="text-2xl md:text-3xl font-bold tracking-tight">구매 내역</h1>
 
       <PendingDeposits />
 
+      {/* Filters */}
       <Card className="bg-card/50 border-border/50">
         <CardContent className="pt-4 flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-[160px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="추적번호 / 계좌 검색" className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+            <Input
+              placeholder="추적번호 / 계좌 검색"
+              className="pl-9"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            />
           </div>
           <Select value={type} onValueChange={(v) => { setType(v); setPage(1); }}>
             <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">전체</SelectItem>
-              <SelectItem value="deposit">입금</SelectItem>
+              <SelectItem value="deposit">구매</SelectItem>
               <SelectItem value="withdrawal">출금</SelectItem>
             </SelectContent>
           </Select>
@@ -193,7 +216,7 @@ export default function Transactions() {
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
         ) : data?.items.length === 0 ? (
           <Card className="bg-card/50 border-border/50">
-            <CardContent className="py-10 text-center text-muted-foreground text-sm">거래 내역이 없습니다</CardContent>
+            <CardContent className="py-10 text-center text-muted-foreground text-sm">구매 내역이 없습니다</CardContent>
           </Card>
         ) : data?.items.map((t) => (
           <Card key={t.id} className="bg-card/50 border-border/50">
@@ -205,20 +228,20 @@ export default function Transactions() {
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   <Badge variant="outline" className={`text-xs ${TYPE_COLORS[t.type] ?? ""}`}>
-                    {t.type === "deposit" ? "입금" : "출금"}
+                    {TYPE_LABELS[t.type] ?? t.type}
                   </Badge>
                   <Badge variant="outline" className={`text-xs ${STATUS_COLORS[t.status] ?? ""}`}>
-                    {t.status === "success" ? "성공" : t.status === "failed" ? "실패" : "대기"}
+                    {STATUS_LABELS[t.status] ?? t.status}
                   </Badge>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-2 text-sm">
                 <div>
-                  <p className="text-xs text-muted-foreground">원금</p>
+                  <p className="text-xs text-muted-foreground">구매금액</p>
                   <p>{formatMoney(t.originalAmount)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">실금액</p>
+                  <p className="text-xs text-muted-foreground">수취금액</p>
                   <p className="font-bold text-primary">{formatMoney(t.amount)}</p>
                 </div>
                 <div>
@@ -244,10 +267,10 @@ export default function Transactions() {
                   <TableHead>추적번호</TableHead>
                   <TableHead>유형</TableHead>
                   <TableHead>회원명</TableHead>
-                  <TableHead>출금계좌</TableHead>
-                  <TableHead>입금계좌</TableHead>
-                  <TableHead className="text-right">원금</TableHead>
-                  <TableHead className="text-right">실금액</TableHead>
+                  <TableHead>구매자 계좌</TableHead>
+                  <TableHead>가상계좌</TableHead>
+                  <TableHead className="text-right">구매금액</TableHead>
+                  <TableHead className="text-right">수취금액</TableHead>
                   <TableHead className="text-right">수수료</TableHead>
                   <TableHead>상태</TableHead>
                   <TableHead>일시</TableHead>
@@ -259,25 +282,29 @@ export default function Transactions() {
                     <TableCell className="font-mono text-xs text-muted-foreground">{t.trackingNumber}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={`text-xs ${TYPE_COLORS[t.type] ?? ""}`}>
-                        {t.type === "deposit" ? "입금" : "출금"}
+                        {TYPE_LABELS[t.type] ?? t.type}
                       </Badge>
                     </TableCell>
                     <TableCell>{t.memberName ?? "-"}</TableCell>
                     <TableCell className="font-mono text-xs">{t.fromAccount}</TableCell>
                     <TableCell className="font-mono text-xs">{t.toAccount}</TableCell>
-                    <TableCell className="text-right">{formatMoney(t.originalAmount)}</TableCell>
-                    <TableCell className="text-right font-medium">{formatMoney(t.amount)}</TableCell>
+                    <TableCell className="text-right font-medium">{formatMoney(t.originalAmount)}</TableCell>
+                    <TableCell className="text-right font-bold text-primary">{formatMoney(t.amount)}</TableCell>
                     <TableCell className="text-right text-muted-foreground">{formatMoney(t.fee)}</TableCell>
                     <TableCell>
                       <Badge variant="outline" className={`text-xs ${STATUS_COLORS[t.status] ?? ""}`}>
-                        {t.status === "success" ? "성공" : t.status === "failed" ? "실패" : "대기"}
+                        {STATUS_LABELS[t.status] ?? t.status}
                       </Badge>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(t.createdAt)}</TableCell>
                   </TableRow>
                 ))}
                 {data?.items.length === 0 && (
-                  <TableRow><TableCell colSpan={10} className="text-center py-10 text-muted-foreground">거래 내역이 없습니다</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
+                      구매 내역이 없습니다
+                    </TableCell>
+                  </TableRow>
                 )}
               </TableBody>
             </Table>
@@ -285,11 +312,12 @@ export default function Transactions() {
         </CardContent>
       </Card>
 
+      {/* Pagination */}
       {data && data.total > 20 && (
         <div className="flex justify-center gap-2">
           <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>이전</Button>
-          <span className="text-sm text-muted-foreground self-center">{page} / {Math.ceil(data.total / 20)}</span>
-          <Button variant="outline" size="sm" disabled={page >= Math.ceil(data.total / 20)} onClick={() => setPage(p => p + 1)}>다음</Button>
+          <span className="text-sm text-muted-foreground self-center">{page} / {totalPages}</span>
+          <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>다음</Button>
         </div>
       )}
     </div>
