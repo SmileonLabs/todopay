@@ -66,7 +66,8 @@ function CreateWithdrawalDialog({ open, onClose, onSuccess }: { open: boolean; o
   const { toast } = useToast();
   const isStore = user?.role === "store";
 
-  const { data: storeList } = useListUsers({ role: "store" }, { enabled: !isStore });
+  // 매장 계정은 드롭다운 불필요 — 항상 호출하되 isStore일 때는 UI에서 무시
+  const { data: storeList } = useListUsers({ role: "store" });
 
   const [form, setForm] = useState({
     storeId: isStore ? String(user?.id ?? "") : "",
