@@ -62,6 +62,7 @@ import type {
   SettlementSummary,
   StatisticsOverview,
   StatusUpdate,
+  StoreBalance,
   TransactionList,
   UserPermissionUpdate,
   VirtualAccount,
@@ -2628,6 +2629,93 @@ export function useGetBalanceSummary<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetBalanceSummaryQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get store balance (구매 확인 적립 잔액)
+ */
+export const getGetStoreBalanceUrl = (id: number) => {
+  return `/api/store/${id}/balance`;
+};
+
+export const getStoreBalance = async (
+  id: number,
+  options?: RequestInit,
+): Promise<StoreBalance> => {
+  return customFetch<StoreBalance>(getGetStoreBalanceUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetStoreBalanceQueryKey = (id: number) => {
+  return [`/api/store/${id}/balance`] as const;
+};
+
+export const getGetStoreBalanceQueryOptions = <
+  TData = Awaited<ReturnType<typeof getStoreBalance>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getStoreBalance>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetStoreBalanceQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getStoreBalance>>> = ({
+    signal,
+  }) => getStoreBalance(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getStoreBalance>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetStoreBalanceQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getStoreBalance>>
+>;
+export type GetStoreBalanceQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get store balance (구매 확인 적립 잔액)
+ */
+
+export function useGetStoreBalance<
+  TData = Awaited<ReturnType<typeof getStoreBalance>>,
+  TError = ErrorType<unknown>,
+>(
+  id: number,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getStoreBalance>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetStoreBalanceQueryOptions(id, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

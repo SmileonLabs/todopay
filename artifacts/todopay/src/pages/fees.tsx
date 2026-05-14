@@ -70,7 +70,7 @@ function EditForm({
       {isStore && (
         <>
           <div className="space-y-1">
-            <label className="text-[10px] text-muted-foreground">입금수수료/건</label>
+            <label className="text-[10px] text-muted-foreground">구매수수료/건</label>
             <div className="flex items-center gap-1">
               <Input type="number" step="1" min="0" value={vals.deposit} autoFocus
                 onChange={e => setVals(p => ({ ...p, deposit: e.target.value }))}
@@ -245,7 +245,7 @@ function StoreRow({
           {hasConfig ? (
             <>
               <div className="text-right hidden md:block">
-                <div className="text-[10px] text-muted-foreground">입금/건</div>
+                <div className="text-[10px] text-muted-foreground">구매/건</div>
                 <div className="text-xs font-mono">{fmt(store.depositFee ?? 0)}원</div>
               </div>
               <div className="text-right hidden md:block">

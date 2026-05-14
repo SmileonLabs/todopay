@@ -4,6 +4,7 @@ import {
   useListBalanceRecords,
   useCreateBalanceRecord,
 } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,13 +24,14 @@ import { Loader2, TrendingUp, TrendingDown, Wallet, PlusCircle, AlertCircle } fr
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 
+// 카테고리 라벨 — 구매처리 플랫폼 맥락에 맞게 정의
 const CATEGORY_LABEL: Record<string, string> = {
-  deposit:    "입금확인",
-  withdrawal: "출금승인",
-  refund:     "반려복원",
+  deposit:    "구매확인",    // 구매 확인 시 매장 잔액 적립
+  withdrawal: "출금승인",    // 매장 출금 승인
+  refund:     "반려복원",    // 반려된 출금 복원
   charge:     "충전",
   adjustment: "조정",
-  payment:    "수수료수당",
+  payment:    "수수료수당",  // 계층별 수수료 수당 분배
 };
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -41,16 +43,29 @@ const CATEGORY_COLOR: Record<string, string> = {
   payment:    "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
 };
 
+// 방향 라벨 — 역할에 따라 의미가 다름
+// 매장: in=구매적립, out=출금차감 / 어드민: in=수수료수입, out=수수료지출
+function directionLabel(direction: string, isStore: boolean) {
+  if (direction === "in") return isStore ? "구매적립" : "수입";
+  return isStore ? "출금차감" : "지출";
+}
+function directionColorClass(direction: string) {
+  return direction === "in"
+    ? "bg-blue-500/20 text-blue-400 border-blue-500/30"
+    : "bg-red-500/20 text-red-400 border-red-500/30";
+}
+
 export default function Balances() {
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isStore = user?.role === "store";
 
   const [type, setType] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [page, setPage] = useState(1);
 
-  // 수동 입력 다이얼로그
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState({
     direction: "in",
@@ -108,14 +123,25 @@ export default function Balances() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">잔액 기록</h1>
-        <Button
-          onClick={() => { setDialogOpen(true); setFormError(""); }}
-          className="bg-primary text-black hover:bg-primary/90 gap-2"
-          size="sm"
-        >
-          <PlusCircle className="h-4 w-4" />수동 입력
-        </Button>
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+            {isStore ? "매장 잔액" : "잔액 기록"}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {isStore
+              ? "구매 확인 시 적립된 잔액과 출금 내역을 확인합니다"
+              : "수수료 수입·지출 및 잔액 변동 이력을 확인합니다"}
+          </p>
+        </div>
+        {user?.role === "superadmin" && (
+          <Button
+            onClick={() => { setDialogOpen(true); setFormError(""); }}
+            className="bg-primary text-black hover:bg-primary/90 gap-2"
+            size="sm"
+          >
+            <PlusCircle className="h-4 w-4" />수동 입력
+          </Button>
+        )}
       </div>
 
       {summary && (
@@ -123,11 +149,15 @@ export default function Balances() {
           <Card className="bg-card/50 border-border/50">
             <CardHeader className="pb-2 pt-4 px-4">
               <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-primary" />현재 잔액
+                <Wallet className="h-4 w-4 text-primary" />
+                {isStore ? "매장 잔액" : "현재 잔액"}
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
               <p className="text-2xl font-bold text-primary">{formatMoney(summary.balance)}</p>
+              {isStore && (
+                <p className="text-xs text-muted-foreground mt-1">구매 확인 누적 적립금</p>
+              )}
             </CardContent>
           </Card>
           <Card className="bg-card/50 border-border/50">
@@ -151,6 +181,7 @@ export default function Balances() {
               <p className={`text-2xl font-bold ${availableBalance < 0 ? "text-red-400" : "text-green-400"}`}>
                 {formatMoney(availableBalance)}
               </p>
+              <p className="text-xs text-muted-foreground mt-1">현재 잔액 − 지급보류</p>
             </CardContent>
           </Card>
         </div>
@@ -159,11 +190,11 @@ export default function Balances() {
       <Card className="bg-card/50 border-border/50">
         <CardContent className="pt-4 flex flex-wrap gap-3">
           <Select value={type} onValueChange={(v) => { setType(v); setPage(1); }}>
-            <SelectTrigger className="w-28"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">전체</SelectItem>
-              <SelectItem value="in">입금</SelectItem>
-              <SelectItem value="out">출금</SelectItem>
+              <SelectItem value="in">{isStore ? "구매적립" : "수입"}</SelectItem>
+              <SelectItem value="out">{isStore ? "출금차감" : "지출"}</SelectItem>
             </SelectContent>
           </Select>
           <div className="flex items-center gap-2 flex-wrap">
@@ -187,8 +218,8 @@ export default function Balances() {
             <CardContent className="p-4 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className={`text-xs ${r.direction === "in" ? "bg-blue-500/20 text-blue-400 border-blue-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"}`}>
-                    {r.direction === "in" ? "입금" : "출금"}
+                  <Badge variant="outline" className={`text-xs ${directionColorClass(r.direction)}`}>
+                    {directionLabel(r.direction, isStore)}
                   </Badge>
                   <Badge variant="outline" className={`text-xs ${CATEGORY_COLOR[r.category] ?? ""}`}>
                     {CATEGORY_LABEL[r.category] ?? r.category}
@@ -199,8 +230,10 @@ export default function Balances() {
                 </p>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground text-xs">{r.description ?? "—"}</span>
-                <span className="text-muted-foreground">잔액 {formatMoney(r.balance)}</span>
+                <span className="text-muted-foreground text-xs truncate max-w-[200px]">{r.description ?? "—"}</span>
+                {r.balance > 0 && (
+                  <span className="text-muted-foreground text-xs shrink-0">잔액 {formatMoney(r.balance)}</span>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">{formatDate(r.createdAt)}</p>
             </CardContent>
@@ -220,7 +253,6 @@ export default function Balances() {
                   <TableHead>구분</TableHead>
                   <TableHead>분류</TableHead>
                   <TableHead className="text-right">금액</TableHead>
-                  <TableHead className="text-right">잔액</TableHead>
                   <TableHead>설명</TableHead>
                   <TableHead>일시</TableHead>
                 </TableRow>
@@ -229,8 +261,8 @@ export default function Balances() {
                 {data?.items.map((r) => (
                   <TableRow key={r.id} className="border-border/30">
                     <TableCell>
-                      <Badge variant="outline" className={`text-xs ${r.direction === "in" ? "bg-blue-500/20 text-blue-400 border-blue-500/30" : "bg-red-500/20 text-red-400 border-red-500/30"}`}>
-                        {r.direction === "in" ? "입금" : "출금"}
+                      <Badge variant="outline" className={`text-xs ${directionColorClass(r.direction)}`}>
+                        {directionLabel(r.direction, isStore)}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -241,14 +273,13 @@ export default function Balances() {
                     <TableCell className={`text-right font-medium ${r.direction === "in" ? "text-blue-400" : "text-red-400"}`}>
                       {r.direction === "in" ? "+" : "-"}{formatMoney(r.amount)}
                     </TableCell>
-                    <TableCell className="text-right font-mono">{formatMoney(r.balance)}</TableCell>
                     <TableCell className="text-sm text-muted-foreground max-w-xs truncate">{r.description ?? "-"}</TableCell>
                     <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(r.createdAt)}</TableCell>
                   </TableRow>
                 ))}
                 {data?.items.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center py-10 text-muted-foreground">
+                    <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
                       내역이 없습니다
                     </TableCell>
                   </TableRow>
@@ -267,7 +298,7 @@ export default function Balances() {
         </div>
       )}
 
-      {/* 수동 입력 다이얼로그 */}
+      {/* 수동 입력 다이얼로그 (superadmin 전용) */}
       <Dialog open={dialogOpen} onOpenChange={(o) => { setDialogOpen(o); if (!o) setFormError(""); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
@@ -280,8 +311,8 @@ export default function Balances() {
                 <Select value={form.direction} onValueChange={(v) => setForm(f => ({ ...f, direction: v, category: v === "in" ? "charge" : "adjustment" }))}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="in">입금 (in)</SelectItem>
-                    <SelectItem value="out">출금 (out)</SelectItem>
+                    <SelectItem value="in">수입 (in)</SelectItem>
+                    <SelectItem value="out">지출 (out)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

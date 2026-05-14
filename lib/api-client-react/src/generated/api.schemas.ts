@@ -255,6 +255,12 @@ export interface BalanceSummary {
   pendingAmount: number;
 }
 
+export interface StoreBalance {
+  storeId: number;
+  /** 매장 잔액 (구매 확인 적립금) */
+  balance: number;
+}
+
 export type SettlementSummaryType =
   (typeof SettlementSummaryType)[keyof typeof SettlementSummaryType];
 

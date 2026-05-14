@@ -3,8 +3,8 @@ import { useGetStatisticsOverview } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatMoney } from "@/lib/format";
 import {
+  ShoppingCart,
   ArrowDownToLine,
-  ArrowRightLeft,
   Users,
   Wallet,
   Activity,
@@ -31,14 +31,14 @@ export default function Dashboard() {
 
   const statCards = [
     {
-      title: "오늘 입금",
+      title: "오늘 구매",
       value: formatMoney(stats.todayDeposit),
-      icon: ArrowRightLeft,
+      icon: ShoppingCart,
       color: "text-blue-400",
       bg: "bg-blue-400/10",
     },
     {
-      title: "오늘 출금",
+      title: "오늘 정산출금",
       value: formatMoney(stats.todayWithdrawal),
       icon: ArrowDownToLine,
       color: "text-red-400",
@@ -59,14 +59,14 @@ export default function Dashboard() {
       bg: "bg-yellow-400/10",
     },
     {
-      title: "이달 입금",
+      title: "이달 구매",
       value: formatMoney(stats.monthDeposit),
       icon: TrendingUp,
       color: "text-blue-400",
       bg: "bg-blue-400/10",
     },
     {
-      title: "이달 출금",
+      title: "이달 정산출금",
       value: formatMoney(stats.monthWithdrawal),
       icon: Wallet,
       color: "text-red-400",

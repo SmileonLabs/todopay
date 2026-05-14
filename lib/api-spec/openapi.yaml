@@ -692,6 +692,26 @@ paths:
               schema:
                 $ref: "#/components/schemas/BalanceSummary"
 
+  # Store balance (매장 잔액)
+  /store/{id}/balance:
+    get:
+      operationId: getStoreBalance
+      tags: [withdrawals]
+      summary: Get store balance (구매 확인 적립 잔액)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Store balance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreBalance"
+
   # Settlements (수수료 정산)
   /settlements/summary:
     get:
@@ -1404,6 +1424,17 @@ components:
           type: number
         pendingAmount:
           type: number
+
+    # Store balance
+    StoreBalance:
+      type: object
+      required: [storeId, balance]
+      properties:
+        storeId:
+          type: integer
+        balance:
+          type: number
+          description: "매장 잔액 (구매 확인 적립금)"
 
     # Settlements
     SettlementSummary:

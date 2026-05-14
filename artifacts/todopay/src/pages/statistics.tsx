@@ -37,11 +37,11 @@ export default function Statistics() {
 
   const chartData = (data ?? []).map((d) => ({
     date: d.date.slice(5),
-    입금: d.depositAmount,
-    출금: d.withdrawalAmount,
+    구매: d.depositAmount,
+    정산출금: d.withdrawalAmount,
     수수료: d.feeAmount,
-    건수입금: d.depositCount,
-    건수출금: d.withdrawalCount,
+    구매건수: d.depositCount,
+    출금건수: d.withdrawalCount,
   }));
 
   const totals = (data ?? []).reduce(
@@ -58,7 +58,10 @@ export default function Statistics() {
 
   return (
     <div className="space-y-5">
-      <h1 className="text-2xl md:text-3xl font-bold tracking-tight">일자별 통계</h1>
+      <div>
+        <h1 className="text-2xl md:text-3xl font-bold tracking-tight">일자별 통계</h1>
+        <p className="text-sm text-muted-foreground mt-1">구매·출금·수수료 일별 집계 현황</p>
+      </div>
 
       {/* Date filter */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -71,11 +74,11 @@ export default function Statistics() {
       {!isLoading && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {[
-            { label: "총 입금", value: formatMoney(totals.deposit), color: "text-blue-400" },
-            { label: "총 출금", value: formatMoney(totals.withdrawal), color: "text-red-400" },
+            { label: "총 구매금액", value: formatMoney(totals.deposit), color: "text-blue-400" },
+            { label: "총 정산출금", value: formatMoney(totals.withdrawal), color: "text-red-400" },
             { label: "총 수수료", value: formatMoney(totals.fee), color: "text-green-400" },
             { label: "순액", value: formatMoney(totals.net), color: "text-primary" },
-            { label: "입금 건수", value: `${totals.depositCount}건`, color: "text-blue-400" },
+            { label: "구매 건수", value: `${totals.depositCount}건`, color: "text-blue-400" },
             { label: "출금 건수", value: `${totals.withdrawalCount}건`, color: "text-red-400" },
           ].map((s) => (
             <Card key={s.label} className="bg-card/50 border-border/50">
@@ -97,7 +100,7 @@ export default function Statistics() {
           {/* Amount Chart */}
           <Card className="bg-card/50 border-border/50">
             <CardHeader className="pb-0 pt-4 px-4">
-              <CardTitle className="text-sm md:text-base">입출금 금액 추이</CardTitle>
+              <CardTitle className="text-sm md:text-base">구매 · 정산출금 금액 추이</CardTitle>
             </CardHeader>
             <CardContent className="px-2 pb-4 pt-2">
               <ResponsiveContainer width="100%" height={220}>
@@ -111,8 +114,8 @@ export default function Statistics() {
                     labelStyle={{ color: "#cbd5e1" }}
                   />
                   <Legend wrapperStyle={{ color: "#94a3b8", fontSize: 11 }} />
-                  <Bar dataKey="입금" fill="#38bdf8" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="출금" fill="#f87171" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="구매" fill="#38bdf8" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="정산출금" fill="#f87171" radius={[3, 3, 0, 0]} />
                   <Bar dataKey="수수료" fill="#4ade80" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -122,7 +125,7 @@ export default function Statistics() {
           {/* Count Chart */}
           <Card className="bg-card/50 border-border/50">
             <CardHeader className="pb-0 pt-4 px-4">
-              <CardTitle className="text-sm md:text-base">입출금 건수 추이</CardTitle>
+              <CardTitle className="text-sm md:text-base">구매 · 출금 건수 추이</CardTitle>
             </CardHeader>
             <CardContent className="px-2 pb-4 pt-2">
               <ResponsiveContainer width="100%" height={180}>
@@ -135,8 +138,8 @@ export default function Statistics() {
                     labelStyle={{ color: "#cbd5e1" }}
                   />
                   <Legend wrapperStyle={{ color: "#94a3b8", fontSize: 11 }} />
-                  <Bar dataKey="건수입금" fill="#818cf8" radius={[3, 3, 0, 0]} />
-                  <Bar dataKey="건수출금" fill="#fb923c" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="구매건수" fill="#818cf8" radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="출금건수" fill="#fb923c" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
@@ -152,7 +155,7 @@ export default function Statistics() {
                 <table className="w-full text-sm min-w-[480px]">
                   <thead>
                     <tr className="border-b border-border/50">
-                      {["날짜", "입금건수", "입금금액", "출금건수", "출금금액", "수수료", "순액"].map((h) => (
+                      {["날짜", "구매건수", "구매금액", "출금건수", "출금금액", "수수료", "순액"].map((h) => (
                         <th key={h} className="text-left px-3 md:px-4 py-3 text-xs text-muted-foreground font-medium whitespace-nowrap">{h}</th>
                       ))}
                     </tr>

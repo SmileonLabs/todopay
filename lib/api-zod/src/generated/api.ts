@@ -593,6 +593,18 @@ export const GetBalanceSummaryResponse = zod.object({
 });
 
 /**
+ * @summary Get store balance (구매 확인 적립 잔액)
+ */
+export const GetStoreBalanceParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const GetStoreBalanceResponse = zod.object({
+  storeId: zod.number(),
+  balance: zod.number().describe("매장 잔액 (구매 확인 적립금)"),
+});
+
+/**
  * @summary Get settlement summary (role-aware)
  */
 export const GetSettlementSummaryQueryParams = zod.object({

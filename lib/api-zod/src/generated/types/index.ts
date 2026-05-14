@@ -54,6 +54,7 @@ export * from "./settlementSummary";
 export * from "./settlementSummaryType";
 export * from "./statisticsOverview";
 export * from "./statusUpdate";
+export * from "./storeBalance";
 export * from "./transaction";
 export * from "./transactionList";
 export * from "./userPermissionUpdate";
