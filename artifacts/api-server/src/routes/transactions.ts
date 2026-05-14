@@ -2,23 +2,14 @@ import { Router } from "express";
 import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable, feeConfigsTable, balanceRecordsTable, storeBalancesTable } from "@workspace/db";
 import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
+import { requireAdmin } from "../lib/auth.js";
 
 const router = Router();
 
-function getAdminId(authHeader: string | undefined): number | null {
-  if (!authHeader) return null;
-  try {
-    const decoded = Buffer.from(authHeader.replace("Bearer ", ""), "base64").toString();
-    const parts = decoded.split(":");
-    if (parts[0] === "m") return null;
-    const id = parseInt(parts[0], 10);
-    return isNaN(id) ? null : id;
-  } catch {
-    return null;
-  }
-}
-
 router.get("/transactions", async (req, res) => {
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = ListTransactionsQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
   const page = Number(params.page ?? 1);
@@ -38,7 +29,7 @@ router.get("/transactions", async (req, res) => {
       res.json({ items: [], total: 0 });
       return;
     }
-    conditions.push(sql`${transactionsTable.memberId} = ANY(ARRAY[${sql.raw(ids.join(","))}])`);
+    conditions.push(sql`${transactionsTable.memberId} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
   }
   if (params.startDate) conditions.push(gte(transactionsTable.createdAt, new Date(params.startDate)));
   if (params.endDate) conditions.push(lte(transactionsTable.createdAt, new Date(params.endDate)));
@@ -82,18 +73,12 @@ router.get("/transactions", async (req, res) => {
   res.json({ items: formatted, total: Number(count) });
 });
 
-// 입금 확인: 매장 잔액 적립 + 3종 수수료 계산 + 이용수수료 계층 배분
-// 전체 과정을 DB 트랜잭션으로 묶어 원자성 보장
 router.post("/transactions/:id/confirm", async (req, res) => {
-  const adminId = getAdminId(req.headers.authorization);
-  if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const [admin] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, adminId));
-  if (!admin || !admin.isActive) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const txId = parseInt(req.params.id, 10);
 
-  // pending 여부 사전 체크 (트랜잭션 외부 — 빠른 오류 반환용)
   const [txCheck] = await db.select().from(transactionsTable).where(eq(transactionsTable.id, txId));
   if (!txCheck) { res.status(404).json({ error: "거래를 찾을 수 없습니다" }); return; }
   if (txCheck.type !== "deposit") { res.status(400).json({ error: "입금 거래만 확인 처리할 수 있습니다" }); return; }
@@ -105,8 +90,8 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     member = m ?? null;
   }
 
-  if (admin.role === "store" && member) {
-    if (member.storeId !== admin.id) {
+  if (caller.role === "store" && member) {
+    if (member.storeId !== caller.id) {
       res.status(403).json({ error: "권한이 없습니다" }); return;
     }
   }
@@ -114,7 +99,6 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   const originalAmount = Number(txCheck.originalAmount);
   const storeId = member?.storeId ?? null;
 
-  // 수수료 조회 (트랜잭션 외부 — 읽기 전용)
   let depositFixedFee = 0;
   let usageFeeRate = 0;
 
@@ -130,7 +114,6 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   const totalFeeAmount = depositFixedFee + usageFeeAmount;
   const netToStore = originalAmount - totalFeeAmount;
 
-  // 계층별 이용수수료 배분 금액 사전 계산 (트랜잭션 외부 — 읽기 전용)
   const feeDistributions: Array<{ userId: number; amount: number; description: string }> = [];
   if (usageFeeAmount > 0 && storeId) {
     let prevChildRate = usageFeeRate;
@@ -139,7 +122,6 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     while (true) {
       const [currentUser] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, currentUserId));
       if (!currentUser || !currentUser.parentId) {
-        // 최상위: 남은 rate 전부 수익
         if (prevChildRate > 0) {
           const topAmount = Math.round(originalAmount * prevChildRate / 100);
           if (topAmount > 0) {
@@ -161,7 +143,6 @@ router.post("/transactions/:id/confirm", async (req, res) => {
       if (levelMarginRate > 0) {
         const levelAmount = Math.round(originalAmount * levelMarginRate / 100);
         if (levelAmount > 0) {
-          // 마진은 상위 계층(parentId)이 취득
           feeDistributions.push({
             userId: currentUser.parentId,
             amount: levelAmount,
@@ -176,11 +157,9 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     }
   }
 
-  // ── DB 트랜잭션: status 업데이트 + 잔액 적립 + 수수료 배분 원자적 처리 ──
   let result: { id: number; status: string } | null = null;
 
   await db.transaction(async (dbtx) => {
-    // 1. 원자적 상태 전환 (WHERE status='pending' — 동시 요청 중복 방지)
     const [updated] = await dbtx.update(transactionsTable)
       .set({
         status: "success",
@@ -191,11 +170,9 @@ router.post("/transactions/:id/confirm", async (req, res) => {
       .returning();
 
     if (!updated) {
-      // 이미 처리됨 — 트랜잭션 롤백 (throw로 탈출)
       throw new Error("ALREADY_PROCESSED");
     }
 
-    // 2. 매장 잔액 적립
     if (storeId && netToStore > 0) {
       await dbtx.execute(sql`
         INSERT INTO store_balances (store_id, balance, updated_at)
@@ -206,7 +183,6 @@ router.post("/transactions/:id/confirm", async (req, res) => {
       `);
     }
 
-    // 3. 이용수수료 계층 배분 기록
     for (const dist of feeDistributions) {
       await dbtx.insert(balanceRecordsTable).values({
         direction: "in",
@@ -218,7 +194,6 @@ router.post("/transactions/:id/confirm", async (req, res) => {
       });
     }
 
-    // 4. 구매 확인 기록 (storeId가 있을 때만)
     if (storeId) {
       await dbtx.insert(balanceRecordsTable).values({
         direction: "in",

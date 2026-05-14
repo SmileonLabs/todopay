@@ -2,23 +2,9 @@ import { Router } from "express";
 import { db, feeConfigsTable, adminUsersTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { CreateFeeConfigBody, UpdateFeeConfigBody } from "@workspace/api-zod";
+import { requireAdmin, isAncestorOf } from "../lib/auth.js";
 
 const router = Router();
-
-async function getCallerFromToken(authHeader: string | undefined) {
-  if (!authHeader) return null;
-  try {
-    const decoded = Buffer.from(authHeader.replace("Bearer ", ""), "base64").toString();
-    const parts = decoded.split(":");
-    if (parts[0] === "m") return null;
-    const id = parseInt(parts[0], 10);
-    if (isNaN(id)) return null;
-    const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, id));
-    return user ?? null;
-  } catch {
-    return null;
-  }
-}
 
 type FeeRow = {
   user_id: number;
@@ -56,9 +42,6 @@ function mapRow(r: FeeRow) {
   };
 }
 
-// usageFeeRate 계층 유효성 검사:
-// 이용 수수료율은 역계층 구조 — 매장(최대) ≥ 대리점 ≥ 총판 ≥ 본사(최소)
-// 상위가 하위보다 높으면 안 됨 (상위는 하위가 모은 금액 중 일부만 위로 전달)
 async function validateUsageFeeRateAgainstParent(
   userId: number,
   usageFeeRate: number,
@@ -74,6 +57,15 @@ async function validateUsageFeeRateAgainstParent(
     return `이용 수수료율(${usageFeeRate}%)이 상위 계정 이용 수수료율(${parentRate}%)보다 낮을 수 없습니다`;
   }
   return null;
+}
+
+async function canManageFee(
+  caller: typeof adminUsersTable.$inferSelect,
+  targetUserId: number,
+): Promise<boolean> {
+  if (caller.role === "superadmin") return true;
+  if (caller.id === targetUserId) return false;
+  return isAncestorOf(caller.id, targetUserId);
 }
 
 const FEE_SQL_COLUMNS = sql.raw(`
@@ -93,9 +85,8 @@ const FEE_SQL_COLUMNS = sql.raw(`
   pfc.usage_fee_rate AS parent_usage_fee_rate
 `);
 
-// GET /fees
 router.get("/fees", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const roleFilter = req.query.role as string | undefined;
@@ -141,7 +132,6 @@ router.get("/fees", async (req, res) => {
     return;
   }
 
-  // Legacy: direct children
   const parentId = req.query.parentId
     ? parseInt(req.query.parentId as string, 10)
     : caller.id;
@@ -159,9 +149,8 @@ router.get("/fees", async (req, res) => {
   res.json(rows.map(mapRow));
 });
 
-// POST /fees
 router.post("/fees", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const parsed = CreateFeeConfigBody.safeParse(req.body);
@@ -171,6 +160,10 @@ router.post("/fees", async (req, res) => {
   const usageFeeRate = typeof (parsed.data as { usageFeeRate?: number }).usageFeeRate === "number"
     ? (parsed.data as { usageFeeRate?: number }).usageFeeRate!
     : 0;
+
+  if (!(await canManageFee(caller, userId))) {
+    res.status(403).json({ error: "해당 계정의 수수료를 설정할 권한이 없습니다" }); return;
+  }
 
   if (depositFee < 0 || withdrawalFee < 0) {
     res.status(400).json({ error: "수수료는 0원 이상이어야 합니다" }); return;
@@ -205,9 +198,8 @@ router.post("/fees", async (req, res) => {
   });
 });
 
-// PATCH /fees/:id
 router.patch("/fees/:id", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const id = parseInt(req.params.id, 10);
@@ -218,6 +210,10 @@ router.patch("/fees/:id", async (req, res) => {
   const existingRows = (existing as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string; usage_fee_rate: string }> }).rows;
   if (existingRows.length === 0) { res.status(404).json({ error: "Not found" }); return; }
   const existingFee = existingRows[0];
+
+  if (!(await canManageFee(caller, existingFee.user_id))) {
+    res.status(403).json({ error: "해당 계정의 수수료를 수정할 권한이 없습니다" }); return;
+  }
 
   const newDeposit = parsed.data.depositFee !== undefined ? parsed.data.depositFee : Number(existingFee.deposit_fee);
   const newWithdrawal = parsed.data.withdrawalFee !== undefined ? parsed.data.withdrawalFee : Number(existingFee.withdrawal_fee);

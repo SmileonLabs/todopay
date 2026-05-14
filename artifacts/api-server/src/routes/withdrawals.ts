@@ -3,10 +3,10 @@ import { db, withdrawalsTable, membersTable, adminUsersTable, feeConfigsTable, b
 import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
 import { ListWithdrawalsQueryParams, CreateWithdrawalBody, RejectWithdrawalBody } from "@workspace/api-zod";
 import crypto from "crypto";
+import { requireAdmin } from "../lib/auth.js";
 
 const router = Router();
 
-// KST 기준 익일 오전 10시 계산 (UTC로 반환)
 function getTomorrow10amKST(): Date {
   const KST_OFFSET = 9 * 60 * 60 * 1000;
   const nowKST = new Date(Date.now() + KST_OFFSET);
@@ -50,7 +50,10 @@ async function formatWithdrawal(w: typeof withdrawalsTable.$inferSelect) {
   };
 }
 
-router.get("/withdrawals/summary", async (_req, res) => {
+router.get("/withdrawals/summary", async (req, res) => {
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const [pending] = await db.select({
     count: sql<number>`count(*)`,
     amount: sql<number>`coalesce(sum(total_amount), 0)`,
@@ -76,6 +79,9 @@ router.get("/withdrawals/summary", async (_req, res) => {
 });
 
 router.get("/withdrawals", async (req, res) => {
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const parsed = ListWithdrawalsQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
   const page = Number(params.page ?? 1);
@@ -114,8 +120,10 @@ router.get("/withdrawals", async (req, res) => {
   });
 });
 
-// 매장 잔액 조회: 출금 폼에서 잔액 표시용
 router.get("/store/:id/balance", async (req, res) => {
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const storeId = parseInt(req.params.id, 10);
   if (isNaN(storeId)) { res.status(400).json({ error: "잘못된 매장 ID" }); return; }
 
@@ -126,21 +134,25 @@ router.get("/store/:id/balance", async (req, res) => {
   res.json({ storeId, balance: sb ? Number(sb.balance) : 0 });
 });
 
-// 매장 출금 신청: 잔액 차감 + 출금 레코드 생성을 DB 트랜잭션으로 묶어 원자적 처리
 router.post("/withdrawals", async (req, res) => {
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  if (caller.role !== "store") {
+    res.status(403).json({ error: "출금 신청은 매장 계정만 가능합니다" }); return;
+  }
+
   const parsed = CreateWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const { amount, accountNumber, accountBank, accountHolder } = parsed.data;
 
-  const storeId: number | null = typeof req.body.storeId === "number" ? req.body.storeId : null;
-  if (!storeId) { res.status(400).json({ error: "storeId가 필요합니다" }); return; }
+  const storeId = caller.id;
 
   const [store] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, storeId));
   if (!store || store.role !== "store") {
     res.status(400).json({ error: "유효하지 않은 매장입니다" }); return;
   }
 
-  // 출금 건당 수수료 조회 (정액, 원)
   let withdrawalFixedFee = 0;
   const [feeConfig] = await db.select().from(feeConfigsTable).where(eq(feeConfigsTable.userId, storeId));
   if (feeConfig) withdrawalFixedFee = Number(feeConfig.withdrawalFee);
@@ -154,12 +166,10 @@ router.post("/withdrawals", async (req, res) => {
   const availableAt = getTomorrow10amKST();
   const trackingNumber = crypto.randomUUID().replace(/-/g, "").substring(0, 16).toUpperCase();
 
-  // ── DB 트랜잭션: 잔액 차감 + 출금 레코드 생성 원자적 처리 ──
   let newWithdrawal: typeof withdrawalsTable.$inferSelect | null = null;
 
   try {
     await db.transaction(async (dbtx) => {
-      // 1. 매장 잔액 원자적 차감: balance >= amount 조건
       const deductResult = await dbtx.execute(
         sql`UPDATE store_balances
             SET balance    = balance - ${Number(amount)},
@@ -171,7 +181,6 @@ router.post("/withdrawals", async (req, res) => {
         throw new Error("INSUFFICIENT_BALANCE");
       }
 
-      // 2. 출금 레코드 생성
       const [w] = await dbtx.insert(withdrawalsTable).values({
         trackingNumber,
         amount: String(amount),
@@ -205,8 +214,10 @@ router.post("/withdrawals", async (req, res) => {
   res.status(201).json(await formatWithdrawal(newWithdrawal));
 });
 
-// 출금 승인: 익일 10시 KST 이후만 가능, 원자적 pending → approved + balance_records 기록
 router.post("/withdrawals/:id/approve", async (req, res) => {
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const id = parseInt(req.params.id, 10);
 
   const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
@@ -224,7 +235,6 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
   let updated: typeof withdrawalsTable.$inferSelect | null = null;
 
   await db.transaction(async (dbtx) => {
-    // 원자적 상태 전환
     const [u] = await dbtx.update(withdrawalsTable)
       .set({ approvalStatus: "approved" })
       .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
@@ -232,7 +242,6 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
 
     if (!u) throw new Error("ALREADY_PROCESSED");
 
-    // 출금 승인 감사 로그
     await dbtx.insert(balanceRecordsTable).values({
       direction: "out",
       category: "withdrawal",
@@ -252,8 +261,10 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
   res.json(await formatWithdrawal(updated));
 });
 
-// 출금 반려: 원자적 pending → rejected + 매장 잔액 복원 + balance_records 기록
 router.post("/withdrawals/:id/reject", async (req, res) => {
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+
   const id = parseInt(req.params.id, 10);
   const parsed = RejectWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
@@ -269,7 +280,6 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
 
       if (!r) throw new Error("ALREADY_PROCESSED");
 
-      // 매장 잔액 복원
       if (r.storeId) {
         await dbtx.execute(sql`
           UPDATE store_balances
@@ -278,7 +288,6 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
           WHERE store_id = ${r.storeId}
         `);
 
-        // 반려 감사 로그
         await dbtx.insert(balanceRecordsTable).values({
           direction: "in",
           category: "refund",
@@ -305,13 +314,6 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
   }
 
   res.json(await formatWithdrawal(rejected));
-});
-
-// GET /store/:storeId/balance — 매장 잔액 조회
-router.get("/store/:storeId/balance", async (req, res) => {
-  const storeId = parseInt(req.params.storeId, 10);
-  const [sb] = await db.select().from(storeBalancesTable).where(eq(storeBalancesTable.storeId, storeId));
-  res.json({ balance: sb ? Number(sb.balance) : 0 });
 });
 
 export default router;

@@ -1,30 +1,15 @@
 import { Router } from "express";
-import { db, transactionsTable, membersTable, virtualAccountsTable, withdrawalsTable, adminUsersTable } from "@workspace/db";
+import { db, transactionsTable, membersTable, virtualAccountsTable, withdrawalsTable } from "@workspace/db";
 import { eq, sql, gte, lte, and } from "drizzle-orm";
 import { GetDailyStatisticsQueryParams } from "@workspace/api-zod";
+import { requireAdmin } from "../lib/auth.js";
 
 const router = Router();
 
-async function getCallerFromToken(authHeader: string | undefined) {
-  if (!authHeader) return null;
-  try {
-    const decoded = Buffer.from(authHeader.replace("Bearer ", ""), "base64").toString();
-    const parts = decoded.split(":");
-    if (parts[0] === "m") return null;
-    const id = parseInt(parts[0], 10);
-    if (isNaN(id)) return null;
-    const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, id));
-    return user ?? null;
-  } catch {
-    return null;
-  }
-}
-
 router.get("/statistics/overview", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  // Today: midnight KST → use server-local midnight (UTC is fine since we compare relative to now)
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
@@ -61,14 +46,12 @@ router.get("/statistics/overview", async (req, res) => {
 });
 
 router.get("/statistics/daily", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const parsed = GetDailyStatisticsQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
 
-  // FIX: endDate must cover the ENTIRE end day (up to 23:59:59.999)
-  // new Date("2026-05-13") parses to midnight UTC, excluding same-day transactions
   const startDate = params.startDate
     ? new Date(params.startDate + "T00:00:00.000Z")
     : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
@@ -108,11 +91,11 @@ router.get("/statistics/daily", async (req, res) => {
     const d = byDate.get(date)!;
     if (t.type === "deposit") {
       d.depositCount++;
-      d.depositAmount += Number(t.amount);               // net credited to VA
-      d.depositOriginalAmount += Number(t.originalAmount); // gross before fee
+      d.depositAmount += Number(t.amount);
+      d.depositOriginalAmount += Number(t.originalAmount);
     } else {
       d.withdrawalCount++;
-      d.withdrawalAmount += Number(t.amount);            // amount paid out
+      d.withdrawalAmount += Number(t.amount);
     }
     d.feeAmount += Number(t.fee);
   }
@@ -122,12 +105,10 @@ router.get("/statistics/daily", async (req, res) => {
     .map(([date, d]) => ({
       date,
       depositCount: d.depositCount,
-      depositAmount: d.depositOriginalAmount,  // show gross deposit amount (before fee)
+      depositAmount: d.depositOriginalAmount,
       withdrawalCount: d.withdrawalCount,
       withdrawalAmount: d.withdrawalAmount,
       feeAmount: d.feeAmount,
-      // FIX: netAmount = net deposit credited - withdrawals paid out
-      // (amount is already net-of-fee, so do NOT subtract feeAmount again)
       netAmount: d.depositAmount - d.withdrawalAmount,
     }));
 

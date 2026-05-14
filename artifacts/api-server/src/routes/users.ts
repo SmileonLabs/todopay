@@ -8,18 +8,9 @@ import {
   ResetUserPasswordBody,
   UpdateUserPermissionBody,
 } from "@workspace/api-zod";
+import { requireAdmin, hashPassword, canActOn, isAncestorOf } from "../lib/auth.js";
 
 const router = Router();
-
-function simpleHash(password: string): string {
-  let hash = 0;
-  for (let i = 0; i < password.length; i++) {
-    const char = password.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return hash.toString(36);
-}
 
 function formatUser(user: typeof adminUsersTable.$inferSelect, parentName?: string | null) {
   return {
@@ -34,46 +25,6 @@ function formatUser(user: typeof adminUsersTable.$inferSelect, parentName?: stri
     parentName: parentName ?? null,
     createdAt: user.createdAt.toISOString(),
   };
-}
-
-async function getCallerFromToken(authHeader: string | undefined) {
-  if (!authHeader) return null;
-  try {
-    const decoded = Buffer.from(authHeader.replace("Bearer ", ""), "base64").toString();
-    const parts = decoded.split(":");
-    if (parts[0] === "m") return null; // member token — not admin
-    const id = parseInt(parts[0], 10);
-    if (isNaN(id)) return null;
-    const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, id));
-    return user ?? null;
-  } catch {
-    return null;
-  }
-}
-
-// Walk up the parent chain from targetId to check if callerId is an ancestor
-async function isAncestorOf(callerId: number, targetId: number): Promise<boolean> {
-  let currentId: number | null = targetId;
-  const visited = new Set<number>();
-  while (currentId !== null) {
-    if (visited.has(currentId)) break; // cycle guard
-    visited.add(currentId);
-    const [row] = await db
-      .select({ parentId: adminUsersTable.parentId })
-      .from(adminUsersTable)
-      .where(eq(adminUsersTable.id, currentId));
-    if (!row) break;
-    if (row.parentId === callerId) return true;
-    currentId = row.parentId ?? null;
-  }
-  return false;
-}
-
-// callerId can act on targetId if: same person OR caller is an ancestor OR caller is superadmin
-async function canActOn(caller: typeof adminUsersTable.$inferSelect, targetId: number): Promise<boolean> {
-  if (caller.id === targetId) return true;
-  if (caller.role === "superadmin") return true;
-  return isAncestorOf(caller.id, targetId);
 }
 
 const CREATABLE_ROLES: Record<string, string[]> = {
@@ -91,10 +42,9 @@ const REQUIRED_PARENT_ROLE: Record<string, string | null> = {
   store:       "agency",
 };
 
-// GET /users — admin only
 router.get("/users", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
-  if (!caller || !caller.isActive) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const parsed = ListUsersQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
@@ -102,7 +52,6 @@ router.get("/users", async (req, res) => {
   const limit = Number(params.limit ?? 100);
   const offset = (page - 1) * limit;
 
-  // 역할 계층: 자신의 역할 및 상위 역할은 하부 조직 목록에서 제외
   const ROLE_LEVELS: Record<string, number> = {
     superadmin: 0, hq: 1, distributor: 2, agency: 3, store: 4,
   };
@@ -113,7 +62,6 @@ router.get("/users", async (req, res) => {
 
   const conditions = [];
   if (params.role) {
-    // role 필터가 지정된 경우: 해당 role만 — 단, 제외 역할이면 빈 결과
     if (excludedRoles.includes(params.role)) {
       res.json({ items: [], total: 0 }); return;
     }
@@ -151,10 +99,9 @@ router.get("/users", async (req, res) => {
   });
 });
 
-// POST /users — admin only (with role-based creation rules)
 router.post("/users", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
-  if (!caller || !caller.isActive) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const parsed = CreateUserBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "입력값이 올바르지 않습니다" }); return; }
@@ -187,6 +134,9 @@ router.post("/users", async (req, res) => {
       if (parent.role !== requiredParentRole) {
         res.status(400).json({ error: `${role} 계정의 상위는 ${requiredParentRole}이어야 합니다` }); return;
       }
+      if (!(await canActOn(caller, parent.id))) {
+        res.status(403).json({ error: "해당 상위 계정에 대한 권한이 없습니다" }); return;
+      }
       resolvedParentId = parent.id;
     } else {
       res.status(400).json({ error: `${role} 계정을 생성하려면 상위 ${requiredParentRole} 계정을 선택해야 합니다` }); return;
@@ -195,7 +145,7 @@ router.post("/users", async (req, res) => {
 
   const [user] = await db.insert(adminUsersTable).values({
     loginId,
-    passwordHash: simpleHash(password),
+    passwordHash: await hashPassword(password),
     name,
     role,
     permission: permission ?? "admin",
@@ -206,13 +156,16 @@ router.post("/users", async (req, res) => {
   res.status(201).json(formatUser(user));
 });
 
-// GET /users/:id — admin only
 router.get("/users/:id", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+  const allowed = await canActOn(caller, id);
+  if (!allowed) { res.status(403).json({ error: "권한이 없습니다" }); return; }
+
   const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, id));
   if (!user) { res.status(404).json({ error: "Not found" }); return; }
   let parentName: string | null = null;
@@ -223,9 +176,8 @@ router.get("/users/:id", async (req, res) => {
   res.json(formatUser(user, parentName));
 });
 
-// PATCH /users/:id — self (name only) or ancestor/superadmin (any field)
 router.patch("/users/:id", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const id = parseInt(req.params.id, 10);
@@ -239,10 +191,8 @@ router.patch("/users/:id", async (req, res) => {
 
   const updates: Partial<typeof adminUsersTable.$inferInsert> = {};
 
-  // Name: self or ancestor can update
   if (parsed.data.name !== undefined) updates.name = parsed.data.name.trim();
 
-  // isActive, permission, useOtp: only ancestor/superadmin (not self)
   const isSelf = caller.id === id;
   if (!isSelf) {
     if (parsed.data.isActive !== undefined) updates.isActive = parsed.data.isActive;
@@ -259,9 +209,8 @@ router.patch("/users/:id", async (req, res) => {
   res.json(formatUser(user));
 });
 
-// DELETE /users/:id — ancestor/superadmin only (cannot delete self)
 router.delete("/users/:id", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const id = parseInt(req.params.id, 10);
@@ -276,9 +225,8 @@ router.delete("/users/:id", async (req, res) => {
   res.status(204).send();
 });
 
-// POST /users/:id/reset-password — self or ancestor/superadmin
 router.post("/users/:id/reset-password", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const id = parseInt(req.params.id, 10);
@@ -295,7 +243,7 @@ router.post("/users/:id/reset-password", async (req, res) => {
   if (!allowed) { res.status(403).json({ error: "권한이 없습니다" }); return; }
 
   const result = await db.update(adminUsersTable)
-    .set({ passwordHash: simpleHash(parsed.data.newPassword) })
+    .set({ passwordHash: await hashPassword(parsed.data.newPassword) })
     .where(eq(adminUsersTable.id, id))
     .returning({ id: adminUsersTable.id });
 
@@ -303,9 +251,8 @@ router.post("/users/:id/reset-password", async (req, res) => {
   res.json({ success: true });
 });
 
-// PATCH /users/:id/permission — ancestor/superadmin only (not self)
 router.patch("/users/:id/permission", async (req, res) => {
-  const caller = await getCallerFromToken(req.headers.authorization);
+  const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const id = parseInt(req.params.id, 10);
