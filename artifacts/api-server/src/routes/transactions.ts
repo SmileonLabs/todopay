@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable, feeConfigsTable, balanceRecordsTable } from "@workspace/db";
+import { db, transactionsTable, membersTable, virtualAccountsTable, adminUsersTable, feeConfigsTable, balanceRecordsTable, storeBalancesTable } from "@workspace/db";
 import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
 
@@ -82,8 +82,8 @@ router.get("/transactions", async (req, res) => {
   res.json({ items: formatted, total: Number(count) });
 });
 
-// 입금 확인: 원자적 상태 전환 (pending → success)
-// SELECT + UPDATE 분리 시 동시 클릭으로 잔액 이중 적립 가능 → WHERE status = 'pending' 조건으로 방지
+// 입금 확인: 매장 잔액 적립 + 3종 수수료 계산 + 이용수수료 계층 배분
+// 원자적 상태 전환 (pending → success), WHERE status='pending' 으로 중복 처리 방지
 router.post("/transactions/:id/confirm", async (req, res) => {
   const adminId = getAdminId(req.headers.authorization);
   if (!adminId) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -93,11 +93,9 @@ router.post("/transactions/:id/confirm", async (req, res) => {
 
   const txId = parseInt(req.params.id, 10);
 
-  // 거래 조회 (권한 확인 및 수수료 계산용)
   const [tx] = await db.select().from(transactionsTable).where(eq(transactionsTable.id, txId));
   if (!tx) { res.status(404).json({ error: "거래를 찾을 수 없습니다" }); return; }
   if (tx.type !== "deposit") { res.status(400).json({ error: "입금 거래만 확인 처리할 수 있습니다" }); return; }
-  // 이미 처리된 건 빠른 반환 (UX용 — 실제 중복 방지는 아래 원자적 UPDATE에서)
   if (tx.status !== "pending") { res.status(400).json({ error: "이미 처리된 거래입니다" }); return; }
 
   let member: typeof membersTable.$inferSelect | null = null;
@@ -106,31 +104,39 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     member = m ?? null;
   }
 
-  // 매장 권한 확인
   if (admin.role === "store" && member) {
     if (member.storeId !== admin.id) {
       res.status(403).json({ error: "권한이 없습니다" }); return;
     }
   }
 
-  // 수수료 계산
   const originalAmount = Number(tx.originalAmount);
-  let feeRate = 0;
-  if (member?.storeId) {
-    const [feeConfig] = await db.select().from(feeConfigsTable)
-      .where(eq(feeConfigsTable.userId, member.storeId));
-    if (feeConfig) feeRate = Number(feeConfig.depositFee);
-  }
-  const feeAmount = Math.round(originalAmount * feeRate / 100);
-  const netAmount = originalAmount - feeAmount;
+  const storeId = member?.storeId ?? null;
 
-  // 원자적 상태 전환: WHERE status = 'pending' 조건 포함
-  // 동시에 두 요청이 들어와도 하나만 성공, 나머지는 0 rows 반환
+  // 수수료 조회
+  let depositFixedFee = 0;      // 입금 건당 수수료 (정액, 원)
+  let usageFeeRate = 0;         // 이용 수수료율 (%)
+  let withdrawalFixedFee = 0;   // 출금 건당 수수료 (나중에 출금 시 사용, 여기선 참고만)
+
+  if (storeId) {
+    const [feeConfig] = await db.select().from(feeConfigsTable).where(eq(feeConfigsTable.userId, storeId));
+    if (feeConfig) {
+      depositFixedFee = Number(feeConfig.depositFee);
+      usageFeeRate = Number(feeConfig.usageFeeRate);
+      withdrawalFixedFee = Number(feeConfig.withdrawalFee);
+    }
+  }
+
+  const usageFeeAmount = Math.round(originalAmount * usageFeeRate / 100);
+  const totalFeeAmount = depositFixedFee + usageFeeAmount;
+  const netToStore = originalAmount - totalFeeAmount;
+
+  // 원자적 상태 전환: WHERE status='pending' — 동시 요청 중복 방지
   const [updated] = await db.update(transactionsTable)
     .set({
       status: "success",
-      fee: feeAmount.toFixed(2),
-      amount: netAmount.toFixed(2),
+      fee: totalFeeAmount.toFixed(2),
+      amount: netToStore.toFixed(2),
     })
     .where(and(eq(transactionsTable.id, txId), eq(transactionsTable.status, "pending")))
     .returning();
@@ -139,26 +145,90 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     res.status(400).json({ error: "이미 처리된 거래입니다" }); return;
   }
 
-  // 가상계좌 잔액 적립 (원자적 덧셈 — 위 UPDATE 성공 후 한 번만 실행됨)
-  if (tx.memberId) {
-    await db.update(virtualAccountsTable)
-      .set({ balance: sql`balance + ${netAmount}` })
-      .where(eq(virtualAccountsTable.memberId, tx.memberId));
+  // 매장 잔액 적립 (원자적 UPSERT)
+  if (storeId && netToStore > 0) {
+    await db.execute(sql`
+      INSERT INTO store_balances (store_id, balance, updated_at)
+      VALUES (${storeId}, ${netToStore.toFixed(2)}, NOW())
+      ON CONFLICT (store_id) DO UPDATE
+        SET balance    = store_balances.balance + ${netToStore.toFixed(2)},
+            updated_at = NOW()
+    `);
   }
 
-  // balance_records 기록
-  const [lastBal] = await db.select().from(balanceRecordsTable).orderBy(sql`created_at desc`).limit(1);
-  const prevBal = Number(lastBal?.balance ?? 0);
+  // 이용 수수료 계층 배분: 매장(최대) → 대리점 → 총판 → 본사
+  // 각 레벨 수익 = (하위 레벨 rate - 현 레벨 rate) × 입금액
+  // 예: 매장 5%, 대리점 2%, 총판 1% → 대리점 3%, 총판 1%, 본사 1%
+  if (usageFeeAmount > 0 && storeId) {
+    let prevChildRate = usageFeeRate;
+    let currentUserId = storeId;
+
+    while (true) {
+      const [currentUser] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, currentUserId));
+      if (!currentUser || !currentUser.parentId) {
+        // 최상위 레벨: 남은 rate 전체가 이 레벨 수익
+        if (prevChildRate > 0) {
+          const topAmount = Math.round(originalAmount * prevChildRate / 100);
+          if (topAmount > 0) {
+            await db.insert(balanceRecordsTable).values({
+              direction: "in",
+              category: "payment",
+              amount: topAmount.toFixed(2),
+              balance: "0",
+              description: `이용수수료 수당 [${currentUserId}] - ${tx.trackingNumber} (${prevChildRate}%)`,
+              userId: currentUserId,
+            });
+          }
+        }
+        break;
+      }
+
+      const [parentFeeConfig] = await db.select().from(feeConfigsTable)
+        .where(eq(feeConfigsTable.userId, currentUser.parentId));
+
+      const parentRate = parentFeeConfig ? Number(parentFeeConfig.usageFeeRate) : 0;
+      const levelMarginRate = prevChildRate - parentRate;
+
+      if (levelMarginRate > 0) {
+        const levelAmount = Math.round(originalAmount * levelMarginRate / 100);
+        if (levelAmount > 0) {
+          await db.insert(balanceRecordsTable).values({
+            direction: "in",
+            category: "payment",
+            amount: levelAmount.toFixed(2),
+            balance: "0",
+            description: `이용수수료 수당 [${currentUserId}] - ${tx.trackingNumber} (마진 ${levelMarginRate}%)`,
+            userId: currentUserId,
+          });
+        }
+      }
+
+      prevChildRate = parentRate;
+      currentUserId = currentUser.parentId;
+
+      if (prevChildRate <= 0) break;
+    }
+  }
+
+  // 플랫폼 balance_records (입금 확인 기록)
   await db.insert(balanceRecordsTable).values({
     direction: "in",
     category: "deposit",
     amount: originalAmount.toFixed(2),
-    balance: (prevBal + originalAmount).toFixed(2),
-    description: `입금 확인 - ${tx.trackingNumber} (수수료 ${feeAmount.toLocaleString("ko-KR")}원)`,
-    userId: member?.storeId ?? null,
+    balance: "0",
+    description: `구매 확인 - ${tx.trackingNumber} (입금수수료 ${depositFixedFee.toLocaleString("ko-KR")}원, 이용수수료 ${usageFeeAmount.toLocaleString("ko-KR")}원)`,
+    userId: storeId,
   });
 
-  res.json({ success: true, id: updated.id, status: updated.status, fee: feeAmount, amount: netAmount });
+  res.json({
+    success: true,
+    id: updated.id,
+    status: updated.status,
+    fee: totalFeeAmount,
+    depositFixedFee,
+    usageFeeAmount,
+    amount: netToStore,
+  });
 });
 
 export default router;

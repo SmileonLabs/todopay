@@ -10,30 +10,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { formatMoney, formatDate } from "@/lib/format";
-import { CheckCircle, XCircle, Loader2, Search } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, Search, Clock, AlertCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 
 const APPROVAL_LABELS: Record<string, string> = {
@@ -50,6 +37,41 @@ const PAID_COLORS: Record<string, string> = {
   paid: "bg-blue-500/20 text-blue-400 border-blue-500/30",
   unpaid: "bg-slate-500/20 text-slate-400 border-slate-500/30",
 };
+
+type WithdrawalItem = {
+  id: number;
+  trackingNumber: string;
+  amount: number;
+  fee: number;
+  totalAmount: number;
+  approvalStatus: string;
+  withdrawalStatus: string;
+  accountNumber: string;
+  accountBank: string;
+  accountHolder: string;
+  rejectReason?: string | null;
+  memberName?: string | null;
+  storeName?: string | null;
+  storeId?: number | null;
+  availableAt?: string | null;
+  createdAt: string;
+};
+
+function AvailableAtBadge({ availableAt }: { availableAt?: string | null }) {
+  if (!availableAt) return null;
+  const now = new Date();
+  const at = new Date(availableAt);
+  if (now >= at) return null;
+  const kstStr = at.toLocaleString("ko-KR", {
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul",
+  });
+  return (
+    <div className="flex items-center gap-1 text-[10px] text-amber-400 mt-0.5">
+      <Clock className="h-2.5 w-2.5" />
+      <span>{kstStr} 이후 승인 가능</span>
+    </div>
+  );
+}
 
 export default function Withdrawals() {
   const { toast } = useToast();
@@ -79,10 +101,24 @@ export default function Withdrawals() {
     void qc.invalidateQueries({ queryKey: ["/api/statistics/overview"] });
   };
 
-  const handleApprove = (id: number) => {
-    approve.mutate({ id }, {
+  const handleApprove = (w: WithdrawalItem) => {
+    if (w.availableAt) {
+      const now = new Date();
+      const at = new Date(w.availableAt);
+      if (now < at) {
+        const kstStr = at.toLocaleString("ko-KR", {
+          month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul",
+        });
+        toast({ title: `아직 출금 가능 시간이 아닙니다 (${kstStr} 이후)`, variant: "destructive" });
+        return;
+      }
+    }
+    approve.mutate({ id: w.id }, {
       onSuccess: () => { toast({ title: "출금 승인 완료" }); invalidate(); },
-      onError: () => toast({ title: "승인 실패", variant: "destructive" }),
+      onError: (e: unknown) => {
+        const msg = (e as { response?: { data?: { error?: string } } })?.response?.data?.error ?? "승인 실패";
+        toast({ title: msg, variant: "destructive" });
+      },
     });
   };
 
@@ -98,6 +134,8 @@ export default function Withdrawals() {
       onError: () => toast({ title: "반려 실패", variant: "destructive" }),
     });
   };
+
+  const items = (data?.items ?? []) as WithdrawalItem[];
 
   return (
     <div className="space-y-5">
@@ -126,7 +164,7 @@ export default function Withdrawals() {
         <CardContent className="pt-4 flex flex-wrap gap-3">
           <div className="relative flex-1 min-w-[160px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="추적번호 / 회원명 검색" className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
+            <Input placeholder="추적번호 / 매장명 검색" className="pl-9" value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} />
           </div>
           <Select value={approvalStatus} onValueChange={(v) => { setApprovalStatus(v); setPage(1); }}>
             <SelectTrigger className="w-32"><SelectValue /></SelectTrigger>
@@ -140,21 +178,28 @@ export default function Withdrawals() {
         </CardContent>
       </Card>
 
+      {/* 익일 10시 안내 */}
+      <div className="flex items-start gap-2 text-xs text-amber-400/80 bg-amber-400/5 border border-amber-400/20 rounded-md px-3 py-2">
+        <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+        <span>매장 출금 신청은 익일 오전 10시 (KST) 이후에 승인 처리됩니다.</span>
+      </div>
+
       {/* Mobile card list */}
       <div className="md:hidden space-y-3">
         {isLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
-        ) : data?.items.length === 0 ? (
+        ) : items.length === 0 ? (
           <Card className="bg-card/50 border-border/50">
             <CardContent className="py-10 text-center text-muted-foreground text-sm">출금 내역이 없습니다</CardContent>
           </Card>
-        ) : data?.items.map((w) => (
+        ) : items.map((w) => (
           <Card key={w.id} className="bg-card/50 border-border/50">
             <CardContent className="p-4 space-y-3">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="font-mono text-xs text-muted-foreground">{w.trackingNumber}</p>
-                  <p className="font-semibold mt-0.5">{w.memberName ?? "-"}</p>
+                  <p className="font-semibold mt-0.5">{w.storeName ?? w.memberName ?? "-"}</p>
+                  <AvailableAtBadge availableAt={w.availableAt} />
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   <Badge variant="outline" className={`text-xs ${APPROVAL_COLORS[w.approvalStatus] ?? ""}`}>
@@ -176,19 +221,19 @@ export default function Withdrawals() {
                   <p>{w.accountHolder}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">금액</p>
+                  <p className="text-xs text-muted-foreground">출금액</p>
                   <p className="font-bold text-primary">{formatMoney(w.amount)}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">수수료</p>
-                  <p className="text-muted-foreground">{formatMoney(w.fee)}</p>
+                  <p className="text-xs text-muted-foreground">수수료 / 실지급</p>
+                  <p className="text-muted-foreground text-xs">{formatMoney(w.fee)} / <span className="text-foreground font-medium">{formatMoney(w.totalAmount)}</span></p>
                 </div>
               </div>
               <div className="flex items-center justify-between pt-1 border-t border-border/30">
                 <p className="text-xs text-muted-foreground">{formatDate(w.createdAt)}</p>
                 {w.approvalStatus === "pending" && (
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline" className="h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10" onClick={() => handleApprove(w.id)}>
+                    <Button size="sm" variant="outline" className="h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10" onClick={() => handleApprove(w)}>
                       <CheckCircle className="h-3 w-3 mr-1" />승인
                     </Button>
                     <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => { setRejectDialogId(w.id); setRejectReason(""); }}>
@@ -215,56 +260,81 @@ export default function Withdrawals() {
               <TableHeader>
                 <TableRow className="border-border/50 hover:bg-transparent">
                   <TableHead>추적번호</TableHead>
-                  <TableHead>회원명</TableHead>
+                  <TableHead>매장명</TableHead>
                   <TableHead>은행/계좌</TableHead>
                   <TableHead>예금주</TableHead>
-                  <TableHead className="text-right">금액</TableHead>
+                  <TableHead className="text-right">출금액</TableHead>
                   <TableHead className="text-right">수수료</TableHead>
+                  <TableHead className="text-right">실지급</TableHead>
                   <TableHead>승인상태</TableHead>
                   <TableHead>지급상태</TableHead>
+                  <TableHead>승인 가능 시각</TableHead>
                   <TableHead>신청일시</TableHead>
                   <TableHead>처리</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data?.items.map((w) => (
-                  <TableRow key={w.id} className="border-border/30">
-                    <TableCell className="font-mono text-xs text-muted-foreground">{w.trackingNumber}</TableCell>
-                    <TableCell>{w.memberName ?? "-"}</TableCell>
-                    <TableCell className="text-sm">{w.accountBank}<br /><span className="font-mono text-xs text-muted-foreground">{w.accountNumber}</span></TableCell>
-                    <TableCell>{w.accountHolder}</TableCell>
-                    <TableCell className="text-right font-medium">{formatMoney(w.amount)}</TableCell>
-                    <TableCell className="text-right text-muted-foreground">{formatMoney(w.fee)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={`text-xs ${APPROVAL_COLORS[w.approvalStatus] ?? ""}`}>
-                        {APPROVAL_LABELS[w.approvalStatus] ?? w.approvalStatus}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={`text-xs ${PAID_COLORS[w.withdrawalStatus] ?? ""}`}>
-                        {w.withdrawalStatus === "paid" ? "지급완료" : "미지급"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(w.createdAt)}</TableCell>
-                    <TableCell>
-                      {w.approvalStatus === "pending" && (
-                        <div className="flex gap-1">
-                          <Button size="sm" variant="outline" className="h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10" onClick={() => handleApprove(w.id)}>
-                            <CheckCircle className="h-3 w-3 mr-1" />승인
-                          </Button>
-                          <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => { setRejectDialogId(w.id); setRejectReason(""); }}>
-                            <XCircle className="h-3 w-3 mr-1" />반려
-                          </Button>
-                        </div>
-                      )}
-                      {w.approvalStatus === "rejected" && w.rejectReason && (
-                        <span className="text-xs text-muted-foreground">{w.rejectReason}</span>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {data?.items.length === 0 && (
-                  <TableRow><TableCell colSpan={10} className="text-center py-10 text-muted-foreground">출금 내역이 없습니다</TableCell></TableRow>
+                {items.map((w) => {
+                  const isAvailable = !w.availableAt || new Date() >= new Date(w.availableAt);
+                  const availableKst = w.availableAt
+                    ? new Date(w.availableAt).toLocaleString("ko-KR", {
+                        month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Seoul",
+                      })
+                    : null;
+                  return (
+                    <TableRow key={w.id} className="border-border/30">
+                      <TableCell className="font-mono text-xs text-muted-foreground">{w.trackingNumber}</TableCell>
+                      <TableCell className="font-medium">{w.storeName ?? w.memberName ?? "-"}</TableCell>
+                      <TableCell className="text-sm">{w.accountBank}<br /><span className="font-mono text-xs text-muted-foreground">{w.accountNumber}</span></TableCell>
+                      <TableCell>{w.accountHolder}</TableCell>
+                      <TableCell className="text-right font-medium">{formatMoney(w.amount)}</TableCell>
+                      <TableCell className="text-right text-muted-foreground">{formatMoney(w.fee)}</TableCell>
+                      <TableCell className="text-right font-bold text-primary">{formatMoney(w.totalAmount)}</TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={`text-xs ${APPROVAL_COLORS[w.approvalStatus] ?? ""}`}>
+                          {APPROVAL_LABELS[w.approvalStatus] ?? w.approvalStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className={`text-xs ${PAID_COLORS[w.withdrawalStatus] ?? ""}`}>
+                          {w.withdrawalStatus === "paid" ? "지급완료" : "미지급"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {availableKst ? (
+                          <span className={isAvailable ? "text-green-400" : "text-amber-400"}>
+                            {isAvailable ? "✓ 가능" : availableKst}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{formatDate(w.createdAt)}</TableCell>
+                      <TableCell>
+                        {w.approvalStatus === "pending" && (
+                          <div className="flex gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className={`h-7 text-xs ${isAvailable ? "border-green-500/30 text-green-400 hover:bg-green-500/10" : "border-amber-500/30 text-amber-400 hover:bg-amber-500/10 opacity-60"}`}
+                              onClick={() => handleApprove(w)}
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" />승인
+                            </Button>
+                            <Button size="sm" variant="outline" className="h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => { setRejectDialogId(w.id); setRejectReason(""); }}>
+                              <XCircle className="h-3 w-3 mr-1" />반려
+                            </Button>
+                          </div>
+                        )}
+                        {w.approvalStatus === "rejected" && w.rejectReason && (
+                          <span className="text-xs text-muted-foreground">{w.rejectReason}</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {items.length === 0 && (
+                  <TableRow><TableCell colSpan={12} className="text-center py-10 text-muted-foreground">출금 내역이 없습니다</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>

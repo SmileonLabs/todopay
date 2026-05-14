@@ -25,5 +25,12 @@ export interface Withdrawal {
   memberName?: string | null;
   /** @nullable */
   storeName?: string | null;
+  /** @nullable */
+  storeId?: number | null;
+  /**
+   * 익일 오전 10시 KST (출금 승인 가능 시각)
+   * @nullable
+   */
+  availableAt?: string | null;
   createdAt: string;
 }

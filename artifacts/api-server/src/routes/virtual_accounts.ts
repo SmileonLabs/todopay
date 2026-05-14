@@ -35,7 +35,6 @@ router.get("/virtual-accounts", async (req, res) => {
       status: va.status,
       memberId: va.memberId ?? 0,
       memberName,
-      balance: Number(va.balance),
       createdAt: va.createdAt.toISOString(),
     };
   }));
@@ -59,7 +58,6 @@ router.get("/virtual-accounts/:id", async (req, res) => {
     status: va.status,
     memberId: va.memberId ?? 0,
     memberName,
-    balance: Number(va.balance),
     createdAt: va.createdAt.toISOString(),
   });
 });

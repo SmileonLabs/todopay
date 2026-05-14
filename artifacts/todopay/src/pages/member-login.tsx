@@ -7,8 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Loader2, Landmark, CopyCheck, Copy, LogOut, ShieldCheck, Clock,
-  ArrowDownCircle, ArrowUpCircle, History, Wallet, ChevronRight,
-  AlertCircle, CheckCircle2,
+  ArrowDownCircle, History, ChevronRight, AlertCircle, CheckCircle2, ShoppingCart,
 } from "lucide-react";
 
 const MEMBER_TOKEN_KEY = "todopay_member_token";
@@ -17,13 +16,11 @@ const BANKS = ["국민은행", "신한은행", "우리은행", "하나은행", "
 const baseUrl = import.meta.env.BASE_URL ?? "/";
 const api = (path: string) => `${baseUrl}${path}`.replace(/\/+/g, "/").replace(":/", "://");
 
-interface MemberAccount { id: number; bankName: string; accountNumber: string; balance: string; status: string; }
+interface MemberAccount { id: number; bankName: string; accountNumber: string; status: string; }
 interface MemberInfo { id: number; loginId: string; name: string; phone: string; birthdate: string | null; isVerified: boolean; createdAt: string; }
 interface MemberSession { member: MemberInfo; account: MemberAccount | null; }
-interface DepositItem { id: number; amount: number; originalAmount?: number; fee?: number; status: string; trackingNumber: string; fromAccount: string; toAccount: string; createdAt: string; }
-interface DepositsResponse { balance: number; items: DepositItem[]; }
-interface WithdrawalItem { id: number; trackingNumber: string; amount: number; fee: number; totalAmount: number; approvalStatus: string; withdrawalStatus: string; accountNumber: string; accountBank: string; accountHolder: string; rejectReason: string | null; createdAt: string; }
-interface WithdrawalsResponse { items: WithdrawalItem[]; }
+interface PurchaseItem { id: number; amount: number; originalAmount?: number; fee?: number; status: string; trackingNumber: string; fromAccount: string; toAccount: string; createdAt: string; }
+interface PurchasesResponse { items: PurchaseItem[]; }
 
 function fmt(n: number | string) { return Number(n).toLocaleString("ko-KR"); }
 function fmtDate(s: string) { return new Date(s).toLocaleString("ko-KR", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }); }
@@ -34,43 +31,25 @@ const STATUS_CLASS: Record<string, string> = {
   success: "bg-green-500/20 text-green-400 border-green-500/30",
   failed: "bg-red-500/20 text-red-400 border-red-500/30",
 };
-const APPROVAL_LABEL: Record<string, string> = { pending: "대기중", approved: "승인", rejected: "반려" };
-const APPROVAL_CLASS: Record<string, string> = {
-  pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
-  approved: "bg-green-500/20 text-green-400 border-green-500/30",
-  rejected: "bg-red-500/20 text-red-400 border-red-500/30",
-};
 
-type Tab = "account" | "deposit" | "withdraw" | "history";
+type Tab = "account" | "purchase" | "history";
 
 function Portal({ session, token, onLogout, onSessionRefresh }: { session: MemberSession; token: string; onLogout: () => void; onSessionRefresh: () => Promise<void> }) {
   const { member, account } = session;
   const [tab, setTab] = useState<Tab>("account");
   const [copied, setCopied] = useState(false);
 
-  // Deposit state
+  // 구매 신청 state
   const [amount, setAmount] = useState("");
   const [fromBank, setFromBank] = useState(BANKS[0]);
   const [fromAccount, setFromAccount] = useState("");
-  const [depositError, setDepositError] = useState("");
-  const [depositLoading, setDepositLoading] = useState(false);
-  const [depositSuccess, setDepositSuccess] = useState<DepositItem | null>(null);
+  const [purchaseError, setPurchaseError] = useState("");
+  const [purchaseLoading, setPurchaseLoading] = useState(false);
+  const [purchaseSuccess, setPurchaseSuccess] = useState<PurchaseItem | null>(null);
 
-  // Withdraw state
-  const [wAmount, setWAmount] = useState("");
-  const [wBank, setWBank] = useState(BANKS[0]);
-  const [wAccount, setWAccount] = useState("");
-  const [wHolder, setWHolder] = useState("");
-  const [withdrawError, setWithdrawError] = useState("");
-  const [withdrawLoading, setWithdrawLoading] = useState(false);
-  const [withdrawSuccess, setWithdrawSuccess] = useState<WithdrawalItem | null>(null);
-
-  // History state
-  const [deposits, setDeposits] = useState<DepositsResponse | null>(null);
-  const [depositsLoading, setDepositsLoading] = useState(false);
-  const [withdrawals, setWithdrawals] = useState<WithdrawalsResponse | null>(null);
-  const [withdrawalsLoading, setWithdrawalsLoading] = useState(false);
-  const [historyTab, setHistoryTab] = useState<"deposit" | "withdraw">("deposit");
+  // 내역 state
+  const [purchases, setPurchases] = useState<PurchasesResponse | null>(null);
+  const [purchasesLoading, setPurchasesLoading] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => void onSessionRefresh(), 15000);
@@ -84,99 +63,53 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
     }).catch(() => setCopied(false));
   };
 
-  const loadDeposits = useCallback(async () => {
-    setDepositsLoading(true);
+  const loadPurchases = useCallback(async () => {
+    setPurchasesLoading(true);
     try {
       const res = await fetch(api("api/member/deposits"), { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) setDeposits(await res.json() as DepositsResponse);
+      if (res.ok) setPurchases(await res.json() as PurchasesResponse);
     } finally {
-      setDepositsLoading(false);
-    }
-  }, [token]);
-
-  const loadWithdrawals = useCallback(async () => {
-    setWithdrawalsLoading(true);
-    try {
-      const res = await fetch(api("api/member/withdrawals"), { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) setWithdrawals(await res.json() as WithdrawalsResponse);
-    } finally {
-      setWithdrawalsLoading(false);
+      setPurchasesLoading(false);
     }
   }, [token]);
 
   useEffect(() => {
     if (tab === "history") {
-      void loadDeposits();
-      void loadWithdrawals();
+      void loadPurchases();
     }
-  }, [tab, loadDeposits, loadWithdrawals]);
+  }, [tab, loadPurchases]);
 
-  const handleDepositSubmit = async (e: React.FormEvent) => {
+  const handlePurchaseSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const num = Number(amount.replace(/,/g, ""));
-    if (!num || num <= 0) { setDepositError("입금액을 올바르게 입력해주세요"); return; }
-    if (num < 1000) { setDepositError("최소 입금액은 1,000원입니다"); return; }
-    if (!fromAccount.trim()) { setDepositError("출금 계좌번호를 입력해주세요"); return; }
-    setDepositError("");
-    setDepositLoading(true);
+    if (!num || num <= 0) { setPurchaseError("구매금액을 올바르게 입력해주세요"); return; }
+    if (num < 1000) { setPurchaseError("최소 구매금액은 1,000원입니다"); return; }
+    if (!fromAccount.trim()) { setPurchaseError("출금 계좌번호를 입력해주세요"); return; }
+    setPurchaseError("");
+    setPurchaseLoading(true);
     try {
       const res = await fetch(api("api/member/deposit-request"), {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ amount: num, fromBank, fromAccount: fromAccount.replace(/\D/g, "") }),
       });
-      const data = await res.json() as DepositItem & { error?: string };
-      if (!res.ok) { setDepositError(data.error ?? "신청에 실패했습니다"); return; }
-      setDepositSuccess(data);
+      const data = await res.json() as PurchaseItem & { error?: string };
+      if (!res.ok) { setPurchaseError(data.error ?? "신청에 실패했습니다"); return; }
+      setPurchaseSuccess(data);
       setAmount("");
       setFromAccount("");
     } catch {
-      setDepositError("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
+      setPurchaseError("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
     } finally {
-      setDepositLoading(false);
-    }
-  };
-
-  const handleWithdrawSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const num = Number(wAmount.replace(/,/g, ""));
-    if (!num || num <= 0) { setWithdrawError("출금액을 올바르게 입력해주세요"); return; }
-    if (num < 1000) { setWithdrawError("최소 출금액은 1,000원입니다"); return; }
-    if (!wAccount.trim()) { setWithdrawError("계좌번호를 입력해주세요"); return; }
-    if (!wHolder.trim()) { setWithdrawError("예금주를 입력해주세요"); return; }
-    const balance = account ? Number(account.balance) : 0;
-    if (num > balance) { setWithdrawError(`잔액이 부족합니다 (현재 잔액: ${fmt(balance)}원)`); return; }
-    setWithdrawError("");
-    setWithdrawLoading(true);
-    try {
-      const res = await fetch(api("api/member/withdrawal-request"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ amount: num, accountBank: wBank, accountNumber: wAccount.replace(/\D/g, ""), accountHolder: wHolder }),
-      });
-      const data = await res.json() as WithdrawalItem & { error?: string };
-      if (!res.ok) { setWithdrawError(data.error ?? "신청에 실패했습니다"); return; }
-      setWithdrawSuccess(data);
-      setWAmount("");
-      setWAccount("");
-      setWHolder("");
-      void onSessionRefresh();
-    } catch {
-      setWithdrawError("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
-    } finally {
-      setWithdrawLoading(false);
+      setPurchaseLoading(false);
     }
   };
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: "account", label: "내 계좌", icon: <Wallet className="h-4 w-4" /> },
-    { id: "deposit", label: "입금 신청", icon: <ArrowDownCircle className="h-4 w-4" /> },
-    { id: "withdraw", label: "출금 신청", icon: <ArrowUpCircle className="h-4 w-4" /> },
-    { id: "history", label: "거래 내역", icon: <History className="h-4 w-4" /> },
+    { id: "account", label: "내 계좌", icon: <Landmark className="h-4 w-4" /> },
+    { id: "purchase", label: "구매 신청", icon: <ShoppingCart className="h-4 w-4" /> },
+    { id: "history", label: "구매 내역", icon: <History className="h-4 w-4" /> },
   ];
-
-  const balance = account ? Number(account.balance) : 0;
-  const wNum = Number(wAmount.replace(/,/g, "")) || 0;
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -200,7 +133,7 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
           )}
         </div>
 
-        <div className="grid grid-cols-4 rounded-lg bg-muted/30 p-1 gap-1">
+        <div className="grid grid-cols-3 rounded-lg bg-muted/30 p-1 gap-1">
           {TABS.map(t => (
             <button
               key={t.id}
@@ -240,19 +173,13 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
                         </button>
                       </div>
                     </div>
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">잔액</p>
-                      <p className="text-2xl font-bold">{fmt(account.balance)}<span className="text-sm font-normal text-muted-foreground ml-1">원</span></p>
+                    <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3">
+                      <p className="text-xs text-blue-300">위 계좌로 구매금액을 이체하시면 매장 담당자가 확인 후 구매 처리됩니다.</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button onClick={() => setTab("deposit")} className="w-full bg-primary text-black hover:bg-primary/90 font-semibold">
-                      <ArrowDownCircle className="h-4 w-4 mr-2" />입금 신청
-                    </Button>
-                    <Button onClick={() => setTab("withdraw")} variant="outline" className="w-full font-semibold">
-                      <ArrowUpCircle className="h-4 w-4 mr-2" />출금 신청
-                    </Button>
-                  </div>
+                  <Button onClick={() => setTab("purchase")} className="w-full bg-primary text-black hover:bg-primary/90 font-semibold">
+                    <ShoppingCart className="h-4 w-4 mr-2" />구매 신청
+                  </Button>
                 </>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">발급된 가상계좌가 없습니다</div>
@@ -264,12 +191,12 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
           </Card>
         )}
 
-        {/* 입금 신청 탭 */}
-        {tab === "deposit" && (
+        {/* 구매 신청 탭 */}
+        {tab === "purchase" && (
           <Card className="bg-card border-border/50">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <ArrowDownCircle className="h-4 w-4 text-primary" />입금 신청
+                <ShoppingCart className="h-4 w-4 text-primary" />구매 신청
               </CardTitle>
               {account && (
                 <p className="text-xs text-muted-foreground">
@@ -278,20 +205,20 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
               )}
             </CardHeader>
             <CardContent className="space-y-4">
-              {depositSuccess ? (
+              {purchaseSuccess ? (
                 <div className="space-y-4">
                   <div className="rounded-xl bg-green-500/5 border border-green-500/20 p-5 space-y-3 text-center">
                     <CheckCircle2 className="h-10 w-10 text-green-400 mx-auto" />
-                    <p className="font-bold">입금 신청이 완료됐습니다</p>
+                    <p className="font-bold">구매 신청이 완료됐습니다</p>
                     <p className="text-sm text-muted-foreground">매장 담당자가 확인 후 처리해 드립니다</p>
                     <div className="text-left bg-muted/30 rounded-lg p-3 space-y-1.5 mt-2">
                       <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">신청금액</span>
-                        <span className="font-bold">{fmt(depositSuccess.amount)}원</span>
+                        <span className="text-muted-foreground">구매금액</span>
+                        <span className="font-bold">{fmt(purchaseSuccess.amount)}원</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">추적번호</span>
-                        <span className="font-mono text-xs">{depositSuccess.trackingNumber}</span>
+                        <span className="font-mono text-xs">{purchaseSuccess.trackingNumber}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-muted-foreground">상태</span>
@@ -300,14 +227,14 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setDepositSuccess(null)} className="flex-1">새 신청</Button>
-                    <Button onClick={() => { setTab("history"); setDepositSuccess(null); }} className="flex-1 bg-primary text-black hover:bg-primary/90">내역 확인</Button>
+                    <Button variant="outline" onClick={() => setPurchaseSuccess(null)} className="flex-1">새 신청</Button>
+                    <Button onClick={() => { setTab("history"); setPurchaseSuccess(null); }} className="flex-1 bg-primary text-black hover:bg-primary/90">내역 확인</Button>
                   </div>
                 </div>
               ) : (
-                <form onSubmit={(e) => void handleDepositSubmit(e)} className="space-y-4" noValidate>
+                <form onSubmit={(e) => void handlePurchaseSubmit(e)} className="space-y-4" noValidate>
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">입금액 <span className="text-red-400">*</span></Label>
+                    <Label className="text-xs text-muted-foreground">구매금액 <span className="text-red-400">*</span></Label>
                     <div className="relative">
                       <Input
                         value={amount}
@@ -352,19 +279,19 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
                     />
                   </div>
 
-                  {depositError && (
+                  {purchaseError && (
                     <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 flex items-center gap-2">
                       <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
-                      <p className="text-xs text-red-400">{depositError}</p>
+                      <p className="text-xs text-red-400">{purchaseError}</p>
                     </div>
                   )}
 
                   <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3">
-                    <p className="text-xs text-blue-400">입금 신청 후 매장 담당자가 확인하면 가상계좌 잔액에 반영됩니다.</p>
+                    <p className="text-xs text-blue-400">구매 신청 후 위 계좌로 이체하시면 매장 담당자가 확인하여 처리합니다.</p>
                   </div>
 
-                  <Button type="submit" disabled={depositLoading} className="w-full bg-primary text-black hover:bg-primary/90 font-semibold">
-                    {depositLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />처리 중...</> : "입금 신청"}
+                  <Button type="submit" disabled={purchaseLoading} className="w-full bg-primary text-black hover:bg-primary/90 font-semibold">
+                    {purchaseLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />처리 중...</> : "구매 신청"}
                   </Button>
                 </form>
               )}
@@ -372,261 +299,107 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
           </Card>
         )}
 
-        {/* 출금 신청 탭 */}
-        {tab === "withdraw" && (
-          <Card className="bg-card border-border/50">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <ArrowUpCircle className="h-4 w-4 text-orange-400" />출금 신청
-              </CardTitle>
-              {account && (
-                <p className="text-xs text-muted-foreground">
-                  현재 잔액: <span className="font-bold text-foreground">{fmt(account.balance)}원</span>
-                </p>
-              )}
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {withdrawSuccess ? (
-                <div className="space-y-4">
-                  <div className="rounded-xl bg-green-500/5 border border-green-500/20 p-5 space-y-3 text-center">
-                    <CheckCircle2 className="h-10 w-10 text-green-400 mx-auto" />
-                    <p className="font-bold">출금 신청이 완료됐습니다</p>
-                    <p className="text-sm text-muted-foreground">매장 담당자 승인 후 입금 처리됩니다</p>
-                    <div className="text-left bg-muted/30 rounded-lg p-3 space-y-1.5 mt-2">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">출금 신청액</span>
-                        <span className="font-bold">{fmt(withdrawSuccess.amount)}원</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">수수료</span>
-                        <span className="text-orange-400">{fmt(withdrawSuccess.fee)}원</span>
-                      </div>
-                      <div className="flex justify-between text-sm border-t border-border/30 pt-1.5 mt-1">
-                        <span className="text-muted-foreground">실수령액</span>
-                        <span className="font-bold text-primary">{fmt(withdrawSuccess.totalAmount)}원</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">입금 계좌</span>
-                        <span className="font-mono text-xs">{withdrawSuccess.accountBank} {withdrawSuccess.accountNumber}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">추적번호</span>
-                        <span className="font-mono text-xs">{withdrawSuccess.trackingNumber}</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setWithdrawSuccess(null)} className="flex-1">새 신청</Button>
-                    <Button onClick={() => { setTab("history"); setWithdrawSuccess(null); setHistoryTab("withdraw"); }} className="flex-1 bg-primary text-black hover:bg-primary/90">내역 확인</Button>
-                  </div>
-                </div>
-              ) : (
-                <form onSubmit={(e) => void handleWithdrawSubmit(e)} className="space-y-4" noValidate>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">출금액 <span className="text-red-400">*</span></Label>
-                    <div className="relative">
-                      <Input
-                        value={wAmount}
-                        onChange={(e) => {
-                          const raw = e.target.value.replace(/,/g, "").replace(/\D/g, "");
-                          setWAmount(raw ? Number(raw).toLocaleString("ko-KR") : "");
-                        }}
-                        placeholder="0"
-                        className="pr-8 text-right font-mono text-lg"
-                      />
-                      <span className="absolute right-3 top-2 text-sm text-muted-foreground">원</span>
-                    </div>
-                    <div className="flex gap-1.5 flex-wrap">
-                      {[10000, 30000, 50000, 100000].map(v => (
-                        <button key={v} type="button" onClick={() => {
-                          const prev = Number(wAmount.replace(/,/g, "")) || 0;
-                          setWAmount(Math.min(prev + v, balance).toLocaleString("ko-KR"));
-                        }} className="text-xs px-2.5 py-1 rounded-md bg-muted/50 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors border border-border/50">
-                          +{fmt(v)}
-                        </button>
-                      ))}
-                      <button type="button" onClick={() => setWAmount(fmt(balance).replace(/,/g, ""))} className="text-xs px-2.5 py-1 rounded-md bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 transition-colors border border-orange-500/30">
-                        전액
-                      </button>
-                    </div>
-                    {wNum > 0 && (
-                      <p className="text-xs text-muted-foreground">
-                        잔액 {fmt(balance)}원 중 {fmt(wNum)}원 출금
-                        {wNum > balance && <span className="text-red-400 ml-1">잔액 초과</span>}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">입금받을 은행 <span className="text-red-400">*</span></Label>
-                    <select
-                      value={wBank}
-                      onChange={(e) => setWBank(e.target.value)}
-                      className="w-full h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                    >
-                      {BANKS.map(b => <option key={b} value={b}>{b}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">계좌번호 <span className="text-red-400">*</span></Label>
-                    <Input
-                      value={wAccount}
-                      onChange={(e) => setWAccount(e.target.value.replace(/\D/g, ""))}
-                      placeholder="- 없이 숫자만 입력"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">예금주 <span className="text-red-400">*</span></Label>
-                    <Input
-                      value={wHolder}
-                      onChange={(e) => setWHolder(e.target.value)}
-                      placeholder="예금주 성명"
-                    />
-                  </div>
-
-                  {withdrawError && (
-                    <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
-                      <p className="text-xs text-red-400">{withdrawError}</p>
-                    </div>
-                  )}
-
-                  <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3">
-                    <p className="text-xs text-orange-400">출금 신청 후 매장 담당자 승인 시 잔액에서 차감되며 계좌로 입금됩니다.</p>
-                  </div>
-
-                  <Button type="submit" disabled={withdrawLoading} className="w-full bg-orange-500 text-white hover:bg-orange-600 font-semibold">
-                    {withdrawLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />처리 중...</> : "출금 신청"}
-                  </Button>
-                </form>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        {/* 거래 내역 탭 */}
+        {/* 구매 내역 탭 */}
         {tab === "history" && (
           <Card className="bg-card border-border/50">
             <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <History className="h-4 w-4 text-primary" />거래 내역
-                </CardTitle>
-                <button onClick={() => { void loadDeposits(); void loadWithdrawals(); }} className="text-xs text-muted-foreground hover:text-foreground transition-colors">새로고침</button>
-              </div>
-              {deposits && (
-                <p className="text-xs text-muted-foreground">현재 잔액: <span className="font-bold text-foreground">{fmt(deposits.balance)}원</span></p>
-              )}
-              <div className="flex rounded-md bg-muted/30 p-0.5 gap-0.5 mt-1">
-                <button
-                  onClick={() => setHistoryTab("deposit")}
-                  className={`flex-1 text-xs py-1.5 rounded transition-colors ${historyTab === "deposit" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-                >
-                  입금 내역
-                </button>
-                <button
-                  onClick={() => setHistoryTab("withdraw")}
-                  className={`flex-1 text-xs py-1.5 rounded transition-colors ${historyTab === "withdraw" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
-                >
-                  출금 내역
-                </button>
-              </div>
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
+                <History className="h-4 w-4 text-primary" />구매 내역
+              </CardTitle>
             </CardHeader>
             <CardContent>
-              {historyTab === "deposit" && (
-                depositsLoading ? (
-                  <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-                ) : !deposits?.items.length ? (
-                  <div className="text-center py-8 text-sm text-muted-foreground">입금 내역이 없습니다</div>
-                ) : (
-                  <div className="space-y-2">
-                    {deposits.items.map(item => (
-                      <div key={item.id} className="flex items-center justify-between p-3 rounded-lg bg-muted/20 border border-border/30 hover:bg-muted/30 transition-colors">
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-primary">+{fmt(item.amount)}원</span>
-                            {item.fee != null && item.fee > 0 && (
-                              <span className="text-xs text-muted-foreground">(수수료 {fmt(item.fee)}원)</span>
-                            )}
-                            <Badge variant="outline" className={`text-xs ${STATUS_CLASS[item.status] ?? ""}`}>
-                              {STATUS_LABEL[item.status] ?? item.status}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground">{item.fromAccount}</p>
-                          <p className="text-xs text-muted-foreground/60">{fmtDate(item.createdAt)}</p>
-                        </div>
-                        <p className="text-xs font-mono text-muted-foreground/60">{item.trackingNumber.slice(-8)}</p>
+              {purchasesLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+              ) : !purchases || purchases.items.length === 0 ? (
+                <div className="text-center py-8 text-sm text-muted-foreground">구매 내역이 없습니다</div>
+              ) : (
+                <div className="space-y-2">
+                  {purchases.items.map(item => (
+                    <div key={item.id} className="rounded-lg bg-muted/20 border border-border/30 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-mono text-xs text-muted-foreground">{item.trackingNumber}</span>
+                        <Badge variant="outline" className={`text-xs ${STATUS_CLASS[item.status] ?? ""}`}>
+                          {STATUS_LABEL[item.status] ?? item.status}
+                        </Badge>
                       </div>
-                    ))}
-                  </div>
-                )
-              )}
-              {historyTab === "withdraw" && (
-                withdrawalsLoading ? (
-                  <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-                ) : !withdrawals?.items.length ? (
-                  <div className="text-center py-8 text-sm text-muted-foreground">출금 내역이 없습니다</div>
-                ) : (
-                  <div className="space-y-2">
-                    {withdrawals.items.map(item => (
-                      <div key={item.id} className="flex items-start justify-between p-3 rounded-lg bg-muted/20 border border-border/30 hover:bg-muted/30 transition-colors">
-                        <div className="space-y-0.5">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold text-orange-400">-{fmt(item.amount)}원</span>
-                            <Badge variant="outline" className={`text-xs ${APPROVAL_CLASS[item.approvalStatus] ?? ""}`}>
-                              {APPROVAL_LABEL[item.approvalStatus] ?? item.approvalStatus}
-                            </Badge>
-                          </div>
-                          {item.fee > 0 && (
-                            <p className="text-xs text-muted-foreground">수수료 {fmt(item.fee)}원 → 실수령 {fmt(item.totalAmount)}원</p>
-                          )}
-                          <p className="text-xs text-muted-foreground">{item.accountBank} {item.accountNumber} ({item.accountHolder})</p>
-                          {item.rejectReason && (
-                            <p className="text-xs text-red-400">반려: {item.rejectReason}</p>
-                          )}
-                          <p className="text-xs text-muted-foreground/60">{fmtDate(item.createdAt)}</p>
-                        </div>
-                        <p className="text-xs font-mono text-muted-foreground/60 shrink-0 ml-2">{item.trackingNumber.slice(-8)}</p>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-primary">{fmt(item.originalAmount ?? item.amount)}원</span>
+                        <span className="text-xs text-muted-foreground">{fmtDate(item.createdAt)}</span>
                       </div>
-                    ))}
-                  </div>
-                )
+                      {item.fee != null && item.fee > 0 && (
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                          <ChevronRight className="h-3 w-3" />
+                          <span>수수료 {fmt(item.fee)}원 · 실 처리 {fmt(item.amount)}원</span>
+                        </div>
+                      )}
+                      <div className="text-xs text-muted-foreground">
+                        <span>{item.fromAccount}</span>
+                        <span className="mx-1">→</span>
+                        <span className="font-mono">{item.toAccount}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
         )}
-
-        <p className="text-center text-xs text-muted-foreground">© 2026 TodoPay Financial Operations. All rights reserved.</p>
       </div>
     </div>
   );
 }
 
+// ——————————————————————————————————————————————
+// 로그인 / 회원가입 폼
+// ——————————————————————————————————————————————
+type AuthMode = "login" | "register";
+
+interface RegisterResponse { id: number; loginId: string; name: string; error?: string; }
+
 export default function MemberLogin() {
+  const [mode, setMode] = useState<AuthMode>("login");
+  const [session, setSession] = useState<MemberSession | null>(null);
+  const [token, setToken] = useState<string>(() => localStorage.getItem(MEMBER_TOKEN_KEY) ?? "");
+
+  // 로그인 폼
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [session, setSession] = useState<MemberSession | null>(null);
-  const [token, setToken] = useState<string>("");
-  const [checkingToken, setCheckingToken] = useState(true);
+  const [loginError, setLoginError] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
 
-  useEffect(() => {
-    const saved = localStorage.getItem(MEMBER_TOKEN_KEY);
-    if (!saved) { setCheckingToken(false); return; }
-    fetch(api("api/member/auth/me"), { headers: { Authorization: `Bearer ${saved}` } })
-      .then(r => r.ok ? r.json() as Promise<MemberSession> : Promise.reject())
-      .then(data => { setSession(data); setToken(saved); })
-      .catch(() => localStorage.removeItem(MEMBER_TOKEN_KEY))
-      .finally(() => setCheckingToken(false));
+  // 회원가입 폼
+  const [regData, setRegData] = useState({ loginId: "", password: "", name: "", phone: "", storeCode: "", birthdate: "" });
+  const [storeValid, setStoreValid] = useState<boolean | null>(null);
+  const [storeName, setStoreName] = useState("");
+  const [regError, setRegError] = useState("");
+  const [regLoading, setRegLoading] = useState(false);
+  const [regSuccess, setRegSuccess] = useState(false);
+
+  const loadSession = useCallback(async (t: string) => {
+    try {
+      const res = await fetch(api("api/member/auth/me"), { headers: { Authorization: `Bearer ${t}` } });
+      if (res.ok) {
+        const data = await res.json() as MemberSession;
+        setSession(data);
+      } else {
+        setSession(null);
+        setToken("");
+        localStorage.removeItem(MEMBER_TOKEN_KEY);
+      }
+    } catch {
+      setSession(null);
+    }
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (token) void loadSession(token);
+  }, [token, loadSession]);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginId.trim() || !password) { setError("아이디와 비밀번호를 입력해주세요"); return; }
-    setLoading(true); setError("");
+    if (!loginId.trim() || !password.trim()) { setLoginError("아이디와 비밀번호를 입력해주세요"); return; }
+    setLoginError("");
+    setLoginLoading(true);
     try {
       const res = await fetch(api("api/member/auth/login"), {
         method: "POST",
@@ -634,71 +407,189 @@ export default function MemberLogin() {
         body: JSON.stringify({ loginId: loginId.trim(), password }),
       });
       const data = await res.json() as MemberSession & { token?: string; error?: string };
-      if (!res.ok) { setError(data.error ?? "로그인에 실패했습니다"); return; }
-      if (data.token) { localStorage.setItem(MEMBER_TOKEN_KEY, data.token); setToken(data.token); }
+      if (!res.ok) { setLoginError(data.error ?? "로그인에 실패했습니다"); return; }
+      const t = data.token ?? "";
+      localStorage.setItem(MEMBER_TOKEN_KEY, t);
+      setToken(t);
       setSession({ member: data.member, account: data.account });
     } catch {
-      setError("서버와 연결할 수 없습니다. 잠시 후 다시 시도해주세요.");
+      setLoginError("서버와 연결할 수 없습니다.");
     } finally {
-      setLoading(false);
+      setLoginLoading(false);
+    }
+  };
+
+  const handleStoreCheck = async (code: string) => {
+    if (!code.trim()) { setStoreValid(null); setStoreName(""); return; }
+    try {
+      const res = await fetch(api(`api/member/store-check?code=${encodeURIComponent(code)}`));
+      const data = await res.json() as { valid: boolean; storeName?: string };
+      setStoreValid(data.valid);
+      setStoreName(data.valid ? (data.storeName ?? "") : "");
+    } catch {
+      setStoreValid(null);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!regData.loginId.trim() || !regData.password.trim() || !regData.name.trim() || !regData.phone.trim()) {
+      setRegError("필수 항목을 모두 입력해주세요"); return;
+    }
+    if (!storeValid) { setRegError("유효한 매장 코드를 입력해주세요"); return; }
+    setRegError("");
+    setRegLoading(true);
+    try {
+      const res = await fetch(api("api/members/register"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...regData, phone: regData.phone.replace(/\D/g, ""), birthdate: regData.birthdate || null }),
+      });
+      const data = await res.json() as RegisterResponse;
+      if (!res.ok) { setRegError(data.error ?? "가입에 실패했습니다"); return; }
+      setRegSuccess(true);
+    } catch {
+      setRegError("서버와 연결할 수 없습니다.");
+    } finally {
+      setRegLoading(false);
     }
   };
 
   const handleLogout = () => {
     localStorage.removeItem(MEMBER_TOKEN_KEY);
-    setSession(null); setToken(""); setLoginId(""); setPassword("");
+    setToken("");
+    setSession(null);
   };
 
-  if (checkingToken) return (
-    <div className="min-h-screen bg-background flex items-center justify-center">
-      <Loader2 className="h-6 w-6 animate-spin text-primary" />
-    </div>
-  );
-
-  const handleRefreshSession = async () => {
-    const res = await fetch(api("api/member/auth/me"), { headers: { Authorization: `Bearer ${token}` } });
-    if (res.ok) {
-      const data = await res.json() as MemberSession;
-      setSession({ member: data.member, account: data.account });
-    }
-  };
-
-  if (session) return <Portal session={session} token={token} onLogout={handleLogout} onSessionRefresh={handleRefreshSession} />;
+  if (session) {
+    return (
+      <Portal
+        session={session}
+        token={token}
+        onLogout={handleLogout}
+        onSessionRefresh={() => loadSession(token)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="flex flex-col items-center gap-2">
-          <img src={logo} alt="TodoPay" className="h-32 w-auto brightness-0 invert" />
-          <p className="text-xs text-muted-foreground uppercase tracking-widest">회원 로그인</p>
+      <div className="w-full max-w-sm space-y-5">
+        <div className="text-center space-y-2">
+          <img src={logo} alt="TodoPay" className="h-20 w-auto mx-auto brightness-0 invert" />
+          <p className="text-sm text-muted-foreground">가상계좌 구매 포털</p>
         </div>
-        <Card className="bg-card border-border/50">
-          <CardContent className="pt-6">
-            <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4" noValidate>
-              <div className="space-y-1.5">
-                <Label htmlFor="loginId" className="text-xs text-muted-foreground">아이디</Label>
-                <Input id="loginId" value={loginId} onChange={(e) => setLoginId(e.target.value.replace(/\s/g, ""))} placeholder="아이디 입력" autoComplete="username" />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="password" className="text-xs text-muted-foreground">비밀번호</Label>
-                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="비밀번호 입력" autoComplete="current-password" />
-              </div>
-              {error && (
-                <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2">
-                  <p className="text-xs text-red-400">{error}</p>
+
+        {/* Mode toggle */}
+        <div className="grid grid-cols-2 rounded-lg bg-muted/30 p-1 gap-1">
+          {(["login", "register"] as AuthMode[]).map(m => (
+            <button
+              key={m}
+              onClick={() => { setMode(m); setLoginError(""); setRegError(""); }}
+              className={`py-2 rounded-md text-sm font-medium transition-colors ${mode === m ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {m === "login" ? "로그인" : "회원가입"}
+            </button>
+          ))}
+        </div>
+
+        {mode === "login" ? (
+          <Card className="bg-card border-border/50">
+            <CardContent className="pt-5">
+              <form onSubmit={(e) => void handleLogin(e)} className="space-y-4" noValidate>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">아이디</Label>
+                  <Input value={loginId} onChange={(e) => setLoginId(e.target.value)} placeholder="아이디" autoComplete="username" />
                 </div>
-              )}
-              <Button type="submit" disabled={loading} className="w-full bg-primary text-black hover:bg-primary/90 font-semibold">
-                {loading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />로그인 중...</> : "로그인"}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">비밀번호</Label>
+                  <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="비밀번호" autoComplete="current-password" />
+                </div>
+                {loginError && (
+                  <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                    <p className="text-xs text-red-400">{loginError}</p>
+                  </div>
+                )}
+                <Button type="submit" disabled={loginLoading} className="w-full bg-primary text-black hover:bg-primary/90 font-semibold">
+                  {loginLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />로그인 중...</> : "로그인"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        ) : regSuccess ? (
+          <Card className="bg-card border-border/50">
+            <CardContent className="pt-5 pb-5 text-center space-y-4">
+              <CheckCircle2 className="h-12 w-12 text-green-400 mx-auto" />
+              <div>
+                <p className="font-bold text-lg">가입 완료!</p>
+                <p className="text-sm text-muted-foreground mt-1">로그인하여 가상계좌를 확인하세요</p>
+              </div>
+              <Button onClick={() => { setMode("login"); setRegSuccess(false); }} className="w-full bg-primary text-black hover:bg-primary/90">
+                로그인하기
               </Button>
-            </form>
-          </CardContent>
-        </Card>
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground mb-2">아직 회원이 아니신가요?</p>
-          <a href={`${baseUrl}register/member`.replace(/\/+/g, "/")} className="text-sm font-medium text-primary hover:text-primary/80 underline-offset-4 hover:underline transition-colors">회원 가입하기</a>
-        </div>
-        <p className="text-center text-xs text-muted-foreground">© 2026 TodoPay Financial Operations. All rights reserved.</p>
+            </CardContent>
+          </Card>
+        ) : (
+          <Card className="bg-card border-border/50">
+            <CardContent className="pt-5">
+              <form onSubmit={(e) => void handleRegister(e)} className="space-y-3" noValidate>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">매장 코드 <span className="text-red-400">*</span></Label>
+                  <div className="relative">
+                    <Input
+                      value={regData.storeCode}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setRegData(p => ({ ...p, storeCode: v }));
+                        void handleStoreCheck(v);
+                      }}
+                      placeholder="매장 코드 입력"
+                      className={storeValid === true ? "border-green-500/50" : storeValid === false ? "border-red-500/50" : ""}
+                    />
+                    {storeValid === true && (
+                      <div className="mt-1 flex items-center gap-1 text-xs text-green-400">
+                        <CheckCircle2 className="h-3 w-3" />{storeName}
+                      </div>
+                    )}
+                    {storeValid === false && (
+                      <p className="mt-1 text-xs text-red-400">유효하지 않은 매장 코드입니다</p>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">아이디 <span className="text-red-400">*</span></Label>
+                  <Input value={regData.loginId} onChange={(e) => setRegData(p => ({ ...p, loginId: e.target.value }))} placeholder="영문/숫자 조합" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">비밀번호 <span className="text-red-400">*</span></Label>
+                  <Input type="password" value={regData.password} onChange={(e) => setRegData(p => ({ ...p, password: e.target.value }))} placeholder="비밀번호" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">이름 <span className="text-red-400">*</span></Label>
+                  <Input value={regData.name} onChange={(e) => setRegData(p => ({ ...p, name: e.target.value }))} placeholder="실명" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">휴대폰 <span className="text-red-400">*</span></Label>
+                  <Input value={regData.phone} onChange={(e) => setRegData(p => ({ ...p, phone: e.target.value }))} placeholder="01012345678" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">생년월일</Label>
+                  <Input value={regData.birthdate} onChange={(e) => setRegData(p => ({ ...p, birthdate: e.target.value }))} placeholder="YYYY-MM-DD" />
+                </div>
+                {regError && (
+                  <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4 text-red-400 shrink-0" />
+                    <p className="text-xs text-red-400">{regError}</p>
+                  </div>
+                )}
+                <Button type="submit" disabled={regLoading || !storeValid} className="w-full bg-primary text-black hover:bg-primary/90 font-semibold">
+                  {regLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />처리 중...</> : "가입하기"}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

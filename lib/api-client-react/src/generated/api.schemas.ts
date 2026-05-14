@@ -137,7 +137,6 @@ export interface VirtualAccount {
   status: string;
   memberId: number;
   memberName: string;
-  balance?: number;
   createdAt: string;
 }
 
@@ -165,6 +164,13 @@ export interface Withdrawal {
   memberName?: string | null;
   /** @nullable */
   storeName?: string | null;
+  /** @nullable */
+  storeId?: number | null;
+  /**
+   * 익일 오전 10시 KST (출금 승인 가능 시각)
+   * @nullable
+   */
+  availableAt?: string | null;
   createdAt: string;
 }
 
@@ -262,14 +268,27 @@ export interface FeeListItem {
   parentLoginId?: string | null;
   /** @nullable */
   feeConfigId?: number | null;
-  /** @nullable */
+  /**
+   * 입금 건당 수수료 (정액, 원/건)
+   * @nullable
+   */
   depositFee?: number | null;
-  /** @nullable */
+  /**
+   * 출금 건당 수수료 (정액, 원/건)
+   * @nullable
+   */
   withdrawalFee?: number | null;
+  /**
+   * 이용 수수료율 (%)
+   * @nullable
+   */
+  usageFeeRate?: number | null;
   /** @nullable */
   parentDepositFee?: number | null;
   /** @nullable */
   parentWithdrawalFee?: number | null;
+  /** @nullable */
+  parentUsageFeeRate?: number | null;
 }
 
 export interface FeeConfig {
@@ -277,8 +296,12 @@ export interface FeeConfig {
   userId: number;
   userName: string;
   role: string;
+  /** 입금 건당 수수료 (정액, 원/건) */
   depositFee: number;
+  /** 출금 건당 수수료 (정액, 원/건) */
   withdrawalFee: number;
+  /** 이용 수수료율 (%) */
+  usageFeeRate: number;
   createdAt: string;
 }
 
@@ -286,11 +309,13 @@ export interface FeeConfigInput {
   userId: number;
   depositFee: number;
   withdrawalFee: number;
+  usageFeeRate?: number;
 }
 
 export interface FeeConfigUpdate {
   depositFee?: number;
   withdrawalFee?: number;
+  usageFeeRate?: number;
 }
 
 export interface DailyStatistic {

@@ -14,6 +14,5 @@ export interface VirtualAccount {
   status: string;
   memberId: number;
   memberName: string;
-  balance?: number;
   createdAt: string;
 }

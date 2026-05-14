@@ -7,3 +7,4 @@ export * from "./balances";
 export * from "./fees";
 export * from "./notices";
 export * from "./otp_settings";
+export * from "./store_balances";

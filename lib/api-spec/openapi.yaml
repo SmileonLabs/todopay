@@ -1147,8 +1147,6 @@ components:
           type: integer
         memberName:
           type: string
-        balance:
-          type: number
         createdAt:
           type: string
 
@@ -1196,6 +1194,11 @@ components:
           type: ["string", "null"]
         storeName:
           type: ["string", "null"]
+        storeId:
+          type: ["integer", "null"]
+        availableAt:
+          type: ["string", "null"]
+          description: "익일 오전 10시 KST (출금 승인 가능 시각)"
         createdAt:
           type: string
 
@@ -1372,16 +1375,23 @@ components:
           type: ["integer", "null"]
         depositFee:
           type: ["number", "null"]
+          description: "입금 건당 수수료 (정액, 원/건)"
         withdrawalFee:
           type: ["number", "null"]
+          description: "출금 건당 수수료 (정액, 원/건)"
+        usageFeeRate:
+          type: ["number", "null"]
+          description: "이용 수수료율 (%)"
         parentDepositFee:
           type: ["number", "null"]
         parentWithdrawalFee:
           type: ["number", "null"]
+        parentUsageFeeRate:
+          type: ["number", "null"]
 
     FeeConfig:
       type: object
-      required: [id, userId, userName, role, depositFee, withdrawalFee, createdAt]
+      required: [id, userId, userName, role, depositFee, withdrawalFee, usageFeeRate, createdAt]
       properties:
         id:
           type: integer
@@ -1393,8 +1403,13 @@ components:
           type: string
         depositFee:
           type: number
+          description: "입금 건당 수수료 (정액, 원/건)"
         withdrawalFee:
           type: number
+          description: "출금 건당 수수료 (정액, 원/건)"
+        usageFeeRate:
+          type: number
+          description: "이용 수수료율 (%)"
         createdAt:
           type: string
 
@@ -1408,6 +1423,8 @@ components:
           type: number
         withdrawalFee:
           type: number
+        usageFeeRate:
+          type: number
 
     FeeConfigUpdate:
       type: object
@@ -1415,6 +1432,8 @@ components:
         depositFee:
           type: number
         withdrawalFee:
+          type: number
+        usageFeeRate:
           type: number
 
     # Statistics

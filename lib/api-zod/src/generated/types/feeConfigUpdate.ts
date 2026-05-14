@@ -9,4 +9,5 @@
 export interface FeeConfigUpdate {
   depositFee?: number;
   withdrawalFee?: number;
+  usageFeeRate?: number;
 }

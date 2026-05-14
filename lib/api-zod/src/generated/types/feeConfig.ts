@@ -11,7 +11,11 @@ export interface FeeConfig {
   userId: number;
   userName: string;
   role: string;
+  /** 입금 건당 수수료 (정액, 원/건) */
   depositFee: number;
+  /** 출금 건당 수수료 (정액, 원/건) */
   withdrawalFee: number;
+  /** 이용 수수료율 (%) */
+  usageFeeRate: number;
   createdAt: string;
 }

@@ -10,4 +10,5 @@ export interface FeeConfigInput {
   userId: number;
   depositFee: number;
   withdrawalFee: number;
+  usageFeeRate?: number;
 }

@@ -5,8 +5,9 @@ import { z } from "zod/v4";
 export const feeConfigsTable = pgTable("fee_configs", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().unique(),
-  depositFee: numeric("deposit_fee", { precision: 5, scale: 2 }).notNull().default("0"),
-  withdrawalFee: numeric("withdrawal_fee", { precision: 5, scale: 2 }).notNull().default("0"),
+  depositFee: integer("deposit_fee").notNull().default(0),        // 입금 건당 수수료 (정액, 원/건)
+  withdrawalFee: integer("withdrawal_fee").notNull().default(0),  // 출금 건당 수수료 (정액, 원/건)
+  usageFeeRate: numeric("usage_fee_rate", { precision: 5, scale: 2 }).notNull().default("0"), // 이용 수수료율 (%)
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

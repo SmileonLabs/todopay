@@ -19,12 +19,25 @@ export interface FeeListItem {
   parentLoginId?: string | null;
   /** @nullable */
   feeConfigId?: number | null;
-  /** @nullable */
+  /**
+   * 입금 건당 수수료 (정액, 원/건)
+   * @nullable
+   */
   depositFee?: number | null;
-  /** @nullable */
+  /**
+   * 출금 건당 수수료 (정액, 원/건)
+   * @nullable
+   */
   withdrawalFee?: number | null;
+  /**
+   * 이용 수수료율 (%)
+   * @nullable
+   */
+  usageFeeRate?: number | null;
   /** @nullable */
   parentDepositFee?: number | null;
   /** @nullable */
   parentWithdrawalFee?: number | null;
+  /** @nullable */
+  parentUsageFeeRate?: number | null;
 }

@@ -351,7 +351,6 @@ export const ListVirtualAccountsResponse = zod.object({
       status: zod.string().describe("active | revoked"),
       memberId: zod.number(),
       memberName: zod.string(),
-      balance: zod.number().optional(),
       createdAt: zod.string(),
     }),
   ),
@@ -372,7 +371,6 @@ export const GetVirtualAccountResponse = zod.object({
   status: zod.string().describe("active | revoked"),
   memberId: zod.number(),
   memberName: zod.string(),
-  balance: zod.number().optional(),
   createdAt: zod.string(),
 });
 
@@ -405,6 +403,11 @@ export const ListWithdrawalsResponse = zod.object({
       rejectReason: zod.string().nullish(),
       memberName: zod.string().nullish(),
       storeName: zod.string().nullish(),
+      storeId: zod.number().nullish(),
+      availableAt: zod
+        .string()
+        .nullish()
+        .describe("익일 오전 10시 KST (출금 승인 가능 시각)"),
       createdAt: zod.string(),
     }),
   ),
@@ -444,6 +447,11 @@ export const ApproveWithdrawalResponse = zod.object({
   rejectReason: zod.string().nullish(),
   memberName: zod.string().nullish(),
   storeName: zod.string().nullish(),
+  storeId: zod.number().nullish(),
+  availableAt: zod
+    .string()
+    .nullish()
+    .describe("익일 오전 10시 KST (출금 승인 가능 시각)"),
   createdAt: zod.string(),
 });
 
@@ -472,6 +480,11 @@ export const RejectWithdrawalResponse = zod.object({
   rejectReason: zod.string().nullish(),
   memberName: zod.string().nullish(),
   storeName: zod.string().nullish(),
+  storeId: zod.number().nullish(),
+  availableAt: zod
+    .string()
+    .nullish()
+    .describe("익일 오전 10시 KST (출금 승인 가능 시각)"),
   createdAt: zod.string(),
 });
 
@@ -596,10 +609,18 @@ export const ListFeesResponseItem = zod.object({
   parentName: zod.string().nullish(),
   parentLoginId: zod.string().nullish(),
   feeConfigId: zod.number().nullish(),
-  depositFee: zod.number().nullish(),
-  withdrawalFee: zod.number().nullish(),
+  depositFee: zod
+    .number()
+    .nullish()
+    .describe("입금 건당 수수료 (정액, 원\/건)"),
+  withdrawalFee: zod
+    .number()
+    .nullish()
+    .describe("출금 건당 수수료 (정액, 원\/건)"),
+  usageFeeRate: zod.number().nullish().describe("이용 수수료율 (%)"),
   parentDepositFee: zod.number().nullish(),
   parentWithdrawalFee: zod.number().nullish(),
+  parentUsageFeeRate: zod.number().nullish(),
 });
 export const ListFeesResponse = zod.array(ListFeesResponseItem);
 
@@ -610,6 +631,7 @@ export const CreateFeeConfigBody = zod.object({
   userId: zod.number(),
   depositFee: zod.number(),
   withdrawalFee: zod.number(),
+  usageFeeRate: zod.number().optional(),
 });
 
 /**
@@ -622,6 +644,7 @@ export const UpdateFeeConfigParams = zod.object({
 export const UpdateFeeConfigBody = zod.object({
   depositFee: zod.number().optional(),
   withdrawalFee: zod.number().optional(),
+  usageFeeRate: zod.number().optional(),
 });
 
 export const UpdateFeeConfigResponse = zod.object({
@@ -629,8 +652,9 @@ export const UpdateFeeConfigResponse = zod.object({
   userId: zod.number(),
   userName: zod.string(),
   role: zod.string(),
-  depositFee: zod.number(),
-  withdrawalFee: zod.number(),
+  depositFee: zod.number().describe("입금 건당 수수료 (정액, 원\/건)"),
+  withdrawalFee: zod.number().describe("출금 건당 수수료 (정액, 원\/건)"),
+  usageFeeRate: zod.number().describe("이용 수수료율 (%)"),
   createdAt: zod.string(),
 });
 

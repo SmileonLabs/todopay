@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, membersTable, virtualAccountsTable, adminUsersTable, transactionsTable, withdrawalsTable, feeConfigsTable } from "@workspace/db";
+import { db, membersTable, virtualAccountsTable, adminUsersTable, transactionsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 
 const router = Router();
@@ -63,7 +63,6 @@ router.post("/member/auth/login", async (req, res) => {
           id: account.id,
           bankName: account.bankName,
           accountNumber: account.accountNumber,
-          balance: account.balance,
           status: account.status,
         }
       : null,
@@ -106,7 +105,6 @@ router.get("/member/auth/me", async (req, res) => {
             id: account.id,
             bankName: account.bankName,
             accountNumber: account.accountNumber,
-            balance: account.balance,
             status: account.status,
           }
         : null,
@@ -134,27 +132,28 @@ function generateId(prefix: string): string {
   return `${prefix}${Date.now()}${Math.floor(Math.random() * 10000).toString().padStart(4, "0")}`;
 }
 
+// 구매 신청 (구 입금 신청) — 회원이 가상계좌로 구매금액 입금 요청
 router.post("/member/deposit-request", async (req, res) => {
   const member = await getMemberFromToken(req.headers.authorization);
   if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
 
   const { amount, fromBank, fromAccount } = req.body as { amount?: number; fromBank?: string; fromAccount?: string };
   if (!amount || Number(amount) <= 0) { res.status(400).json({ error: "금액을 올바르게 입력해주세요" }); return; }
-  if (Number(amount) < 1000) { res.status(400).json({ error: "최소 입금액은 1,000원입니다" }); return; }
+  if (Number(amount) < 1000) { res.status(400).json({ error: "최소 구매금액은 1,000원입니다" }); return; }
   if (!fromAccount?.trim()) { res.status(400).json({ error: "계좌번호를 입력해주세요" }); return; }
 
   const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
   if (!va) { res.status(400).json({ error: "발급된 가상계좌가 없습니다" }); return; }
   if (va.status === "revoked") { res.status(400).json({ error: "비활성화된 가상계좌입니다" }); return; }
 
-  // 대기 중인 입금 신청이 5건 이상이면 추가 신청 차단
+  // 대기 중인 구매 신청이 5건 이상이면 추가 신청 차단
   const [{ pendingCount }] = await db.select({
     pendingCount: sql<number>`count(*)`,
   }).from(transactionsTable).where(
     and(eq(transactionsTable.memberId, member.id), eq(transactionsTable.status, "pending"), eq(transactionsTable.type, "deposit"))
   );
   if (Number(pendingCount) >= 5) {
-    res.status(400).json({ error: "대기 중인 입금 신청이 너무 많습니다. 기존 신청 처리 후 다시 시도해주세요." }); return;
+    res.status(400).json({ error: "대기 중인 구매 신청이 너무 많습니다. 기존 신청 처리 후 다시 시도해주세요." }); return;
   }
 
   const fromAccountStr = fromBank ? `${fromBank} ${fromAccount.trim()}` : fromAccount.trim();
@@ -183,6 +182,7 @@ router.post("/member/deposit-request", async (req, res) => {
   });
 });
 
+// 구매 내역 조회
 router.get("/member/deposits", async (req, res) => {
   const member = await getMemberFromToken(req.headers.authorization);
   if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -192,10 +192,7 @@ router.get("/member/deposits", async (req, res) => {
     .orderBy(sql`${transactionsTable.createdAt} desc`)
     .limit(30);
 
-  const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
-
   res.json({
-    balance: va ? Number(va.balance) : 0,
     items: deposits.map(t => ({
       id: t.id,
       amount: Number(t.amount),
@@ -206,110 +203,6 @@ router.get("/member/deposits", async (req, res) => {
       fromAccount: t.fromAccount,
       toAccount: t.toAccount,
       createdAt: t.createdAt.toISOString(),
-    })),
-  });
-});
-
-// 회원 출금 신청
-router.post("/member/withdrawal-request", async (req, res) => {
-  const member = await getMemberFromToken(req.headers.authorization);
-  if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const { amount, accountNumber, accountBank, accountHolder } = req.body as {
-    amount?: number; accountNumber?: string; accountBank?: string; accountHolder?: string;
-  };
-  if (!amount || Number(amount) <= 0) { res.status(400).json({ error: "금액을 올바르게 입력해주세요" }); return; }
-  if (Number(amount) < 1000) { res.status(400).json({ error: "최소 출금액은 1,000원입니다" }); return; }
-  if (!accountNumber?.trim()) { res.status(400).json({ error: "계좌번호를 입력해주세요" }); return; }
-  if (!accountBank?.trim()) { res.status(400).json({ error: "은행을 선택해주세요" }); return; }
-  if (!accountHolder?.trim()) { res.status(400).json({ error: "예금주를 입력해주세요" }); return; }
-
-  const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
-  if (!va) { res.status(400).json({ error: "발급된 가상계좌가 없습니다" }); return; }
-
-  // 빠른 사전 검사 (UX용 — 실제 차단은 아래 원자적 UPDATE에서)
-  if (Number(va.balance) < Number(amount)) {
-    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${Number(va.balance).toLocaleString("ko-KR")}원)` }); return;
-  }
-
-  // 수수료 조회 (매장 fee_configs.withdrawalFee)
-  let feeRate = 0;
-  const storeId = member.storeId ?? null;
-  if (storeId) {
-    const [feeConfig] = await db.select().from(feeConfigsTable).where(eq(feeConfigsTable.userId, storeId));
-    if (feeConfig) feeRate = Number(feeConfig.withdrawalFee);
-  }
-
-  const fee = Math.round(Number(amount) * feeRate / 100);
-  const totalAmount = Number(amount) - fee;
-
-  // 원자적 잔액 차감: raw SQL로 balance >= amount 조건 + 차감을 단일 DB 연산으로 처리
-  // 두 요청이 동시에 도달해도 PostgreSQL 행 잠금이 직렬화 보장
-  const deductResult = await db.execute(
-    sql`UPDATE virtual_accounts
-        SET balance = balance - ${Number(amount)}
-        WHERE id = ${va.id} AND balance >= ${Number(amount)}
-        RETURNING id`
-  );
-
-  if (!deductResult.rows || deductResult.rows.length === 0) {
-    // 동시 요청이 먼저 차감한 경우 — 최신 잔액으로 에러 반환
-    const [fresh] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.id, va.id));
-    res.status(400).json({ error: `잔액이 부족합니다 (현재 잔액: ${Number(fresh?.balance ?? 0).toLocaleString("ko-KR")}원)` }); return;
-  }
-
-  const [w] = await db.insert(withdrawalsTable).values({
-    trackingNumber: generateId("WD"),
-    amount: String(amount),
-    fee: String(fee),
-    totalAmount: String(totalAmount),
-    approvalStatus: "pending",
-    withdrawalStatus: "unpaid",
-    accountNumber: accountNumber.trim(),
-    accountBank: accountBank.trim(),
-    accountHolder: accountHolder.trim(),
-    memberId: member.id,
-    storeId,
-  }).returning();
-
-  res.status(201).json({
-    id: w.id,
-    trackingNumber: w.trackingNumber,
-    amount: Number(w.amount),
-    fee: Number(w.fee),
-    totalAmount: Number(w.totalAmount),
-    approvalStatus: w.approvalStatus,
-    accountNumber: w.accountNumber,
-    accountBank: w.accountBank,
-    accountHolder: w.accountHolder,
-    createdAt: w.createdAt.toISOString(),
-  });
-});
-
-// 회원 출금 내역 조회
-router.get("/member/withdrawals", async (req, res) => {
-  const member = await getMemberFromToken(req.headers.authorization);
-  if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
-
-  const items = await db.select().from(withdrawalsTable)
-    .where(eq(withdrawalsTable.memberId, member.id))
-    .orderBy(sql`${withdrawalsTable.createdAt} desc`)
-    .limit(30);
-
-  res.json({
-    items: items.map(w => ({
-      id: w.id,
-      trackingNumber: w.trackingNumber,
-      amount: Number(w.amount),
-      fee: Number(w.fee),
-      totalAmount: Number(w.totalAmount),
-      approvalStatus: w.approvalStatus,
-      withdrawalStatus: w.withdrawalStatus,
-      accountNumber: w.accountNumber,
-      accountBank: w.accountBank,
-      accountHolder: w.accountHolder,
-      rejectReason: w.rejectReason ?? null,
-      createdAt: w.createdAt.toISOString(),
     })),
   });
 });

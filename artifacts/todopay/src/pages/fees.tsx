@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Pencil, Check, X, AlertCircle, Search, ChevronRight, TrendingDown, Lock } from "lucide-react";
+import { Loader2, Pencil, Check, X, AlertCircle, Search, ChevronRight, TrendingDown } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Building2, Network, Store, Shield, Users as UsersIcon } from "lucide-react";
 
@@ -50,11 +50,7 @@ const ACCESSIBLE_ROLES: Record<string, string[]> = {
   store: [],
 };
 
-// 상위 수수료 대비 마진 계산
-function calcMargin(childFee: number | null | undefined, parentFee: number | null | undefined): number | null {
-  if (childFee == null || parentFee == null) return null;
-  return Math.round((parentFee - childFee) * 100) / 100;
-}
+function fmt(n: number) { return n.toLocaleString("ko-KR"); }
 
 // ——————————————————————————————————————————————————————————
 // FeeRow
@@ -65,33 +61,38 @@ function FeeRow({
   isSaving,
 }: {
   item: FeeListItem;
-  onSave: (item: FeeListItem, deposit: number, withdrawal: number) => void;
+  onSave: (item: FeeListItem, deposit: number, withdrawal: number, usageFeeRate: number) => void;
   isSaving: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [vals, setVals] = useState({
     deposit: item.depositFee != null ? String(item.depositFee) : "0",
     withdrawal: item.withdrawalFee != null ? String(item.withdrawalFee) : "0",
+    usageFeeRate: (item as { usageFeeRate?: number | null }).usageFeeRate != null
+      ? String((item as { usageFeeRate?: number | null }).usageFeeRate)
+      : "0",
   });
 
   const Icon = ROLE_ICONS[item.role] ?? Shield;
   const hasConfig = item.feeConfigId != null;
 
-  // 상위 수수료 (상한선)
-  const maxDeposit = item.parentDepositFee ?? null;
-  const maxWithdrawal = item.parentWithdrawalFee ?? null;
+  const itemExt = item as typeof item & { usageFeeRate?: number | null; parentUsageFeeRate?: number | null };
+  const currentUsageFeeRate = itemExt.usageFeeRate ?? null;
+  const parentUsageFeeRate = itemExt.parentUsageFeeRate ?? null;
 
-  // 마진
-  const depositMargin = calcMargin(item.depositFee, maxDeposit);
-  const withdrawalMargin = calcMargin(item.withdrawalFee, maxWithdrawal);
+  // 이용수수료율: 역계층 — 하위(매장)가 높고 상위가 낮아야 함
+  // 마진 = 자신 rate - 상위 rate (자신이 위로 전달하지 않고 갖는 몫)
+  const usageFeeMargin = currentUsageFeeRate != null && parentUsageFeeRate != null
+    ? Math.round((currentUsageFeeRate - parentUsageFeeRate) * 100) / 100
+    : null;
 
   const validateAndSave = () => {
-    const d = parseFloat(vals.deposit);
-    const w = parseFloat(vals.withdrawal);
-    if (isNaN(d) || isNaN(w) || d < 0 || w < 0 || d > 100 || w > 100) return;
-    if (maxDeposit != null && d > maxDeposit) return;
-    if (maxWithdrawal != null && w > maxWithdrawal) return;
-    onSave(item, d, w);
+    const d = parseInt(vals.deposit, 10);
+    const w = parseInt(vals.withdrawal, 10);
+    const u = parseFloat(vals.usageFeeRate);
+    if (isNaN(d) || isNaN(w) || isNaN(u) || d < 0 || w < 0 || u < 0 || u > 100) return;
+    if (parentUsageFeeRate != null && u < parentUsageFeeRate) return;
+    onSave(item, d, w, u);
     setEditing(false);
   };
 
@@ -99,6 +100,7 @@ function FeeRow({
     setVals({
       deposit: item.depositFee != null ? String(item.depositFee) : "0",
       withdrawal: item.withdrawalFee != null ? String(item.withdrawalFee) : "0",
+      usageFeeRate: itemExt.usageFeeRate != null ? String(itemExt.usageFeeRate) : "0",
     });
     setEditing(false);
   };
@@ -106,7 +108,6 @@ function FeeRow({
   if (editing) {
     return (
       <div className="border-b border-border/20 p-3 space-y-3 bg-muted/10">
-        {/* Header */}
         <div className="flex items-center gap-2">
           <div className={`h-7 w-7 rounded border flex items-center justify-center shrink-0 ${ROLE_COLORS[item.role] ?? ""}`}>
             <Icon className="h-3.5 w-3.5" />
@@ -132,63 +133,71 @@ function FeeRow({
           </div>
         </div>
 
-        {/* 상위 수수료 참고 */}
-        {(maxDeposit != null || maxWithdrawal != null) && (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/20 rounded px-2 py-1.5">
-            <Lock className="h-3 w-3 shrink-0 text-amber-400" />
-            <span>상한: 입금 <span className="font-mono text-amber-400">{maxDeposit ?? "—"}%</span></span>
-            <span>·</span>
-            <span>출금 <span className="font-mono text-amber-400">{maxWithdrawal ?? "—"}%</span></span>
-            <span className="text-muted-foreground/50">({PARENT_ROLE_LABELS[item.role] ?? "상위"} 배정값 이하로 설정)</span>
-          </div>
-        )}
-
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
+          {/* 입금 건당 수수료 (정액, 원) */}
           <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">
-              입금 수수료 {maxDeposit != null && <span className="text-amber-400">(최대 {maxDeposit}%)</span>}
-            </label>
+            <label className="text-xs text-muted-foreground">입금 수수료</label>
             <div className="flex items-center gap-1">
               <Input
                 type="number"
-                step="0.01"
+                step="1"
                 min="0"
-                max={maxDeposit ?? 100}
                 value={vals.deposit}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  const n = parseFloat(v);
-                  if (maxDeposit != null && !isNaN(n) && n > maxDeposit) return;
-                  setVals((p) => ({ ...p, deposit: v }));
-                }}
+                onChange={(e) => setVals(p => ({ ...p, deposit: e.target.value }))}
                 className="h-8 text-sm text-right"
                 autoFocus
               />
-              <span className="text-xs text-muted-foreground">%</span>
+              <span className="text-xs text-muted-foreground shrink-0">원</span>
             </div>
           </div>
+
+          {/* 출금 건당 수수료 (정액, 원) */}
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">출금 수수료</label>
+            <div className="flex items-center gap-1">
+              <Input
+                type="number"
+                step="1"
+                min="0"
+                value={vals.withdrawal}
+                onChange={(e) => setVals(p => ({ ...p, withdrawal: e.target.value }))}
+                className="h-8 text-sm text-right"
+              />
+              <span className="text-xs text-muted-foreground shrink-0">원</span>
+            </div>
+          </div>
+
+          {/* 이용 수수료율 (%) */}
           <div className="space-y-1">
             <label className="text-xs text-muted-foreground">
-              출금 수수료 {maxWithdrawal != null && <span className="text-amber-400">(최대 {maxWithdrawal}%)</span>}
+              이용 수수료율
+              {parentUsageFeeRate != null && (
+                <span className="text-amber-400 ml-1">(최소 {parentUsageFeeRate}%)</span>
+              )}
             </label>
             <div className="flex items-center gap-1">
               <Input
                 type="number"
                 step="0.01"
-                min="0"
-                max={maxWithdrawal ?? 100}
-                value={vals.withdrawal}
+                min={parentUsageFeeRate ?? 0}
+                max="100"
+                value={vals.usageFeeRate}
                 onChange={(e) => {
                   const v = e.target.value;
                   const n = parseFloat(v);
-                  if (maxWithdrawal != null && !isNaN(n) && n > maxWithdrawal) return;
-                  setVals((p) => ({ ...p, withdrawal: v }));
+                  if (parentUsageFeeRate != null && !isNaN(n) && n < parentUsageFeeRate) return;
+                  setVals(p => ({ ...p, usageFeeRate: v }));
                 }}
                 className="h-8 text-sm text-right"
               />
-              <span className="text-xs text-muted-foreground">%</span>
+              <span className="text-xs text-muted-foreground shrink-0">%</span>
             </div>
           </div>
+        </div>
+
+        <div className="text-xs text-muted-foreground bg-muted/20 rounded px-2 py-1.5 space-y-0.5">
+          <p>• 입금/출금 수수료: 거래 건당 정액 (매장이 부담)</p>
+          <p>• 이용 수수료율: 입금액의 % (매장 부담 → 상위 계층 배분)</p>
         </div>
       </div>
     );
@@ -196,12 +205,10 @@ function FeeRow({
 
   return (
     <div className="group flex items-center gap-2 px-3 py-3 border-b border-border/20 hover:bg-white/[0.02] last:border-b-0 min-w-0">
-      {/* Role icon */}
       <div className={`h-7 w-7 rounded border flex items-center justify-center shrink-0 ${ROLE_COLORS[item.role] ?? ""}`}>
         <Icon className="h-3.5 w-3.5" />
       </div>
 
-      {/* Name + parent */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="font-semibold text-sm text-foreground truncate">{item.userName}</span>
@@ -212,55 +219,56 @@ function FeeRow({
             <ChevronRight className="h-2.5 w-2.5 text-muted-foreground/50 shrink-0" />
             <span className="text-[11px] text-muted-foreground truncate">
               {PARENT_ROLE_LABELS[item.role] ?? ""} {item.parentName}
-              {maxDeposit != null && (
-                <span className="ml-1.5 text-amber-400/70">배정 {maxDeposit}% / {maxWithdrawal ?? "—"}%</span>
-              )}
             </span>
           </div>
         )}
       </div>
 
-      {/* Fee values + margin */}
-      <div className="flex items-center gap-4 shrink-0">
-        {/* 입금 */}
+      {/* 수수료 표시 */}
+      <div className="flex items-center gap-3 shrink-0">
+        {/* 입금 건당 */}
         <div className="flex flex-col items-end gap-0.5">
-          <span className="text-[10px] text-muted-foreground hidden md:block">입금</span>
+          <span className="text-[10px] text-muted-foreground hidden md:block">입금/건</span>
           {hasConfig ? (
-            <span className="font-mono text-sm text-primary font-semibold">{item.depositFee}%</span>
+            <span className="font-mono text-sm text-primary font-semibold">{fmt(item.depositFee ?? 0)}원</span>
           ) : (
             <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground px-1.5 py-0">미설정</Badge>
-          )}
-          {depositMargin != null && depositMargin > 0 && (
-            <div className="flex items-center gap-0.5 text-[10px] text-emerald-400">
-              <TrendingDown className="h-2.5 w-2.5" />
-              <span>마진 {depositMargin}%</span>
-            </div>
           )}
         </div>
 
-        {/* 출금 */}
+        {/* 출금 건당 */}
         <div className="flex flex-col items-end gap-0.5">
-          <span className="text-[10px] text-muted-foreground hidden md:block">출금</span>
+          <span className="text-[10px] text-muted-foreground hidden md:block">출금/건</span>
           {hasConfig ? (
-            <span className="font-mono text-sm text-primary font-semibold">{item.withdrawalFee}%</span>
+            <span className="font-mono text-sm text-orange-400 font-semibold">{fmt(item.withdrawalFee ?? 0)}원</span>
           ) : (
             <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground px-1.5 py-0">미설정</Badge>
           )}
-          {withdrawalMargin != null && withdrawalMargin > 0 && (
+        </div>
+
+        {/* 이용 수수료율 */}
+        <div className="flex flex-col items-end gap-0.5">
+          <span className="text-[10px] text-muted-foreground hidden md:block">이용률</span>
+          {hasConfig ? (
+            <span className="font-mono text-sm text-yellow-400 font-semibold">{currentUsageFeeRate ?? 0}%</span>
+          ) : (
+            <Badge variant="outline" className="text-[10px] border-muted-foreground/30 text-muted-foreground px-1.5 py-0">미설정</Badge>
+          )}
+          {usageFeeMargin != null && usageFeeMargin > 0 && (
             <div className="flex items-center gap-0.5 text-[10px] text-emerald-400">
               <TrendingDown className="h-2.5 w-2.5" />
-              <span>마진 {withdrawalMargin}%</span>
+              <span>마진 {usageFeeMargin}%</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Edit button */}
       <button
         onClick={() => {
           setVals({
             deposit: item.depositFee != null ? String(item.depositFee) : "0",
             withdrawal: item.withdrawalFee != null ? String(item.withdrawalFee) : "0",
+            usageFeeRate: itemExt.usageFeeRate != null ? String(itemExt.usageFeeRate) : "0",
           });
           setEditing(true);
         }}
@@ -287,7 +295,7 @@ function RoleTabContent({
   savingId,
 }: {
   role: string;
-  onSave: (item: FeeListItem, d: number, w: number) => void;
+  onSave: (item: FeeListItem, d: number, w: number, u: number) => void;
   savingId: number | null;
 }) {
   const [search, setSearch] = useState("");
@@ -306,23 +314,8 @@ function RoleTabContent({
   const setCount = items.filter((i) => i.feeConfigId != null).length;
   const unsetCount = items.length - setCount;
 
-  // 상위 수수료 미설정 경고 (상한선 모름)
-  const noParentFee = items.filter((i) => i.parentId != null && i.parentDepositFee == null).length;
-
   return (
     <div className="space-y-3">
-      {/* 상위 수수료 미설정 경고 */}
-      {noParentFee > 0 && (
-        <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-md px-3 py-2">
-          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
-          <span>
-            {noParentFee}개 항목의 {PARENT_ROLE_LABELS[role] ?? "상위"} 수수료가 미설정입니다.
-            상위 수수료를 먼저 설정해야 상한선이 적용됩니다.
-          </span>
-        </div>
-      )}
-
-      {/* Stats */}
       {(data ?? []).length > 0 && (
         <div className="flex items-center gap-3 flex-wrap text-sm">
           <span className="text-muted-foreground">전체 <strong className="text-foreground">{(data ?? []).length}</strong>개</span>
@@ -337,7 +330,6 @@ function RoleTabContent({
         </div>
       )}
 
-      {/* Search */}
       {(data ?? []).length > 5 && (
         <div className="relative">
           <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
@@ -350,12 +342,15 @@ function RoleTabContent({
         </div>
       )}
 
-      {/* List */}
       <Card className="bg-card/50 border-border/50">
         <div className="hidden md:flex items-center h-8 border-b border-border/50 bg-muted/20 text-xs text-muted-foreground font-medium px-3 gap-2">
           <div className="w-7 shrink-0" />
-          <div className="flex-1 min-w-0">이름 (아이디) / 상위 배정값</div>
-          <div className="w-52 shrink-0 text-right pr-9">입금 · 출금 (마진)</div>
+          <div className="flex-1 min-w-0">이름 (아이디) / 상위</div>
+          <div className="shrink-0 text-right pr-9 flex gap-6">
+            <span>입금/건</span>
+            <span>출금/건</span>
+            <span>이용률</span>
+          </div>
         </div>
         <CardContent className="p-0">
           {isLoading ? (
@@ -386,27 +381,25 @@ function RoleTabContent({
 }
 
 // ——————————————————————————————————————————————————————————
-// HQ fee section (for superadmin to set HQ's total pool)
+// HQ fee section (for superadmin)
 // ——————————————————————————————————————————————————————————
 function HqFeeSection({
   onSave,
   savingId,
 }: {
-  onSave: (item: FeeListItem, d: number, w: number) => void;
+  onSave: (item: FeeListItem, d: number, w: number, u: number) => void;
   savingId: number | null;
 }) {
   const { data, isLoading } = useListFees({ role: "hq" });
   const items = data ?? [];
-
-  if (isLoading) return null;
-  if (items.length === 0) return null;
+  if (isLoading || items.length === 0) return null;
 
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
         <Building2 className="h-4 w-4 text-blue-400" />
-        <h2 className="text-sm font-semibold text-blue-400">본사 수수료 (배정 풀)</h2>
-        <span className="text-xs text-muted-foreground">— 하위 레벨은 이 값 이하로만 설정됩니다</span>
+        <h2 className="text-sm font-semibold text-blue-400">본사 수수료 설정</h2>
+        <span className="text-xs text-muted-foreground">— 이용수수료율은 하위 레벨의 최소 기준값</span>
       </div>
       <Card className="bg-card/50 border-blue-500/20">
         <CardContent className="p-0">
@@ -438,11 +431,7 @@ export default function Fees() {
 
   const myRole = user?.role ?? "store";
 
-  // superadmin: show HQ section + role tabs (distributor, agency, store)
-  // hq: show role tabs (distributor, agency, store)
-  // others: show tabs based on ACCESSIBLE_ROLES
   const allAccessible = ACCESSIBLE_ROLES[myRole] ?? [];
-  // For non-superadmin: hq tab is shown in the HQ section, not the role tabs
   const roleTabs = myRole === "superadmin"
     ? allAccessible.filter((r) => r !== "hq")
     : allAccessible;
@@ -451,11 +440,12 @@ export default function Fees() {
 
   const invalidate = () => void qc.invalidateQueries({ queryKey: ["/api/fees"] });
 
-  const handleSave = (item: FeeListItem, deposit: number, withdrawal: number) => {
+  const handleSave = (item: FeeListItem, deposit: number, withdrawal: number, usageFeeRate: number) => {
     setSavingId(item.userId);
+    const payload = { depositFee: deposit, withdrawalFee: withdrawal, usageFeeRate };
     if (item.feeConfigId != null) {
       update.mutate(
-        { id: item.feeConfigId, data: { depositFee: deposit, withdrawalFee: withdrawal } },
+        { id: item.feeConfigId, data: payload },
         {
           onSuccess: () => { toast({ title: "수수료 수정 완료" }); invalidate(); setSavingId(null); },
           onError: (e: unknown) => {
@@ -467,7 +457,7 @@ export default function Fees() {
       );
     } else {
       create.mutate(
-        { data: { userId: item.userId, depositFee: deposit, withdrawalFee: withdrawal } },
+        { data: { userId: item.userId, ...payload } },
         {
           onSuccess: () => { toast({ title: "수수료 설정 완료" }); invalidate(); setSavingId(null); },
           onError: (e: unknown) => {
@@ -485,11 +475,10 @@ export default function Fees() {
       <div>
         <h1 className="text-2xl md:text-3xl font-bold tracking-tight">수수료 설정</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          상위 배정값 이하로 각 계정별 수수료를 설정합니다. 마진 = 상위 배정 − 하위 설정값
+          입금/출금 수수료는 거래 건당 정액(원). 이용 수수료율은 입금액의 %(매장 최대, 상위로 갈수록 감소 — 마진 = 자신율 − 상위율)
         </p>
       </div>
 
-      {/* 본사 풀 (superadmin only) */}
       {myRole === "superadmin" && (
         <HqFeeSection onSave={handleSave} savingId={savingId} />
       )}
@@ -503,7 +492,6 @@ export default function Fees() {
         </Card>
       ) : (
         <>
-          {/* Role tabs */}
           <div className="flex gap-1 flex-wrap">
             {roleTabs.map((role) => {
               const Icon = ROLE_ICONS[role] ?? Shield;

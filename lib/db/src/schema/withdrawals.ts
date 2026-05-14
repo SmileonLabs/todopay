@@ -16,6 +16,7 @@ export const withdrawalsTable = pgTable("withdrawals", {
   rejectReason: text("reject_reason"),
   memberId: integer("member_id"),
   storeId: integer("store_id"),
+  availableAt: timestamp("available_at"), // 익일 오전 10시 KST (출금 승인 가능 시각)
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

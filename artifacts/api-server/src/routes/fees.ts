@@ -31,8 +31,10 @@ type FeeRow = {
   fee_config_id: number | null;
   deposit_fee: string | null;
   withdrawal_fee: string | null;
+  usage_fee_rate: string | null;
   parent_deposit_fee: string | null;
   parent_withdrawal_fee: string | null;
+  parent_usage_fee_rate: string | null;
 };
 
 function mapRow(r: FeeRow) {
@@ -47,34 +49,51 @@ function mapRow(r: FeeRow) {
     feeConfigId: r.fee_config_id ?? null,
     depositFee: r.deposit_fee != null ? Number(r.deposit_fee) : null,
     withdrawalFee: r.withdrawal_fee != null ? Number(r.withdrawal_fee) : null,
+    usageFeeRate: r.usage_fee_rate != null ? Number(r.usage_fee_rate) : null,
     parentDepositFee: r.parent_deposit_fee != null ? Number(r.parent_deposit_fee) : null,
     parentWithdrawalFee: r.parent_withdrawal_fee != null ? Number(r.parent_withdrawal_fee) : null,
+    parentUsageFeeRate: r.parent_usage_fee_rate != null ? Number(r.parent_usage_fee_rate) : null,
   };
 }
 
-// Validate that child fee <= parent fee (cascading constraint)
-// Returns error message if invalid, null if OK
-async function validateAgainstParent(
+// usageFeeRate 계층 유효성 검사:
+// 이용 수수료율은 역계층 구조 — 매장(최대) ≥ 대리점 ≥ 총판 ≥ 본사(최소)
+// 상위가 하위보다 높으면 안 됨 (상위는 하위가 모은 금액 중 일부만 위로 전달)
+async function validateUsageFeeRateAgainstParent(
   userId: number,
-  depositFee: number | undefined,
-  withdrawalFee: number | undefined,
+  usageFeeRate: number,
 ): Promise<string | null> {
   const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, userId));
-  if (!user || !user.parentId) return null; // superadmin or HQ with no parent — no cap
+  if (!user || !user.parentId) return null;
 
   const [parentFee] = await db.select().from(feeConfigsTable).where(eq(feeConfigsTable.userId, user.parentId));
-  if (!parentFee) return null; // parent has no fee configured yet — no cap enforced
+  if (!parentFee) return null;
 
-  if (depositFee !== undefined && depositFee > Number(parentFee.depositFee)) {
-    return `입금 수수료(${depositFee}%)가 상위 계정 수수료(${Number(parentFee.depositFee)}%)를 초과할 수 없습니다`;
-  }
-  if (withdrawalFee !== undefined && withdrawalFee > Number(parentFee.withdrawalFee)) {
-    return `출금 수수료(${withdrawalFee}%)가 상위 계정 수수료(${Number(parentFee.withdrawalFee)}%)를 초과할 수 없습니다`;
+  const parentRate = Number(parentFee.usageFeeRate);
+  if (usageFeeRate < parentRate) {
+    return `이용 수수료율(${usageFeeRate}%)이 상위 계정 이용 수수료율(${parentRate}%)보다 낮을 수 없습니다`;
   }
   return null;
 }
 
-// GET /fees — admin only, returns users at given role with their fee + parent's fee
+const FEE_SQL_COLUMNS = sql.raw(`
+  au.id         AS user_id,
+  au.login_id   AS user_login_id,
+  au.name       AS user_name,
+  au.role       AS role,
+  au.parent_id  AS parent_id,
+  p.name        AS parent_name,
+  p.login_id    AS parent_login_id,
+  fc.id              AS fee_config_id,
+  fc.deposit_fee     AS deposit_fee,
+  fc.withdrawal_fee  AS withdrawal_fee,
+  fc.usage_fee_rate  AS usage_fee_rate,
+  pfc.deposit_fee    AS parent_deposit_fee,
+  pfc.withdrawal_fee AS parent_withdrawal_fee,
+  pfc.usage_fee_rate AS parent_usage_fee_rate
+`);
+
+// GET /fees
 router.get("/fees", async (req, res) => {
   const caller = await getCallerFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -86,19 +105,7 @@ router.get("/fees", async (req, res) => {
 
     if (caller.role === "superadmin") {
       const result = await db.execute(sql`
-        SELECT
-          au.id         AS user_id,
-          au.login_id   AS user_login_id,
-          au.name       AS user_name,
-          au.role       AS role,
-          au.parent_id  AS parent_id,
-          p.name        AS parent_name,
-          p.login_id    AS parent_login_id,
-          fc.id         AS fee_config_id,
-          fc.deposit_fee    AS deposit_fee,
-          fc.withdrawal_fee AS withdrawal_fee,
-          pfc.deposit_fee    AS parent_deposit_fee,
-          pfc.withdrawal_fee AS parent_withdrawal_fee
+        SELECT ${FEE_SQL_COLUMNS}
         FROM admin_users au
         LEFT JOIN admin_users p ON p.id = au.parent_id
         LEFT JOIN fee_configs fc  ON fc.user_id  = au.id
@@ -118,19 +125,7 @@ router.get("/fees", async (req, res) => {
           FROM admin_users au
           JOIN descendants d ON au.parent_id = d.id
         )
-        SELECT
-          au.id         AS user_id,
-          au.login_id   AS user_login_id,
-          au.name       AS user_name,
-          au.role       AS role,
-          au.parent_id  AS parent_id,
-          p.name        AS parent_name,
-          p.login_id    AS parent_login_id,
-          fc.id         AS fee_config_id,
-          fc.deposit_fee    AS deposit_fee,
-          fc.withdrawal_fee AS withdrawal_fee,
-          pfc.deposit_fee    AS parent_deposit_fee,
-          pfc.withdrawal_fee AS parent_withdrawal_fee
+        SELECT ${FEE_SQL_COLUMNS}
         FROM descendants au
         LEFT JOIN admin_users p ON p.id = au.parent_id
         LEFT JOIN fee_configs fc  ON fc.user_id  = au.id
@@ -152,19 +147,7 @@ router.get("/fees", async (req, res) => {
     : caller.id;
 
   const result = await db.execute(sql`
-    SELECT
-      au.id         AS user_id,
-      au.login_id   AS user_login_id,
-      au.name       AS user_name,
-      au.role       AS role,
-      au.parent_id  AS parent_id,
-      p.name        AS parent_name,
-      p.login_id    AS parent_login_id,
-      fc.id         AS fee_config_id,
-      fc.deposit_fee    AS deposit_fee,
-      fc.withdrawal_fee AS withdrawal_fee,
-      pfc.deposit_fee    AS parent_deposit_fee,
-      pfc.withdrawal_fee AS parent_withdrawal_fee
+    SELECT ${FEE_SQL_COLUMNS}
     FROM admin_users au
     LEFT JOIN admin_users p ON p.id = au.parent_id
     LEFT JOIN fee_configs fc  ON fc.user_id  = au.id
@@ -176,7 +159,7 @@ router.get("/fees", async (req, res) => {
   res.json(rows.map(mapRow));
 });
 
-// POST /fees — create or upsert fee config (validates child ≤ parent)
+// POST /fees
 router.post("/fees", async (req, res) => {
   const caller = await getCallerFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -185,24 +168,29 @@ router.post("/fees", async (req, res) => {
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
   const { userId, depositFee, withdrawalFee } = parsed.data;
+  const usageFeeRate = typeof (parsed.data as { usageFeeRate?: number }).usageFeeRate === "number"
+    ? (parsed.data as { usageFeeRate?: number }).usageFeeRate!
+    : 0;
 
-  // Range check
-  if (depositFee < 0 || depositFee > 100 || withdrawalFee < 0 || withdrawalFee > 100) {
-    res.status(400).json({ error: "수수료는 0~100% 사이여야 합니다" }); return;
+  if (depositFee < 0 || withdrawalFee < 0) {
+    res.status(400).json({ error: "수수료는 0원 이상이어야 합니다" }); return;
+  }
+  if (usageFeeRate < 0 || usageFeeRate > 100) {
+    res.status(400).json({ error: "이용 수수료율은 0~100% 사이여야 합니다" }); return;
   }
 
-  // Cascade constraint: child fee must not exceed parent fee
-  const validationError = await validateAgainstParent(userId, depositFee, withdrawalFee);
-  if (validationError) { res.status(400).json({ error: validationError }); return; }
+  const usageFeeError = await validateUsageFeeRateAgainstParent(userId, usageFeeRate);
+  if (usageFeeError) { res.status(400).json({ error: usageFeeError }); return; }
 
   const [f] = await db.execute(sql`
-    INSERT INTO fee_configs (user_id, deposit_fee, withdrawal_fee)
-    VALUES (${userId}, ${String(depositFee)}, ${String(withdrawalFee)})
+    INSERT INTO fee_configs (user_id, deposit_fee, withdrawal_fee, usage_fee_rate)
+    VALUES (${userId}, ${depositFee}, ${withdrawalFee}, ${String(usageFeeRate)})
     ON CONFLICT (user_id) DO UPDATE
-      SET deposit_fee = EXCLUDED.deposit_fee,
-          withdrawal_fee = EXCLUDED.withdrawal_fee
-    RETURNING id, user_id, deposit_fee, withdrawal_fee, created_at
-  `).then(r => (r as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string; created_at: string }> }).rows);
+      SET deposit_fee    = EXCLUDED.deposit_fee,
+          withdrawal_fee = EXCLUDED.withdrawal_fee,
+          usage_fee_rate = EXCLUDED.usage_fee_rate
+    RETURNING id, user_id, deposit_fee, withdrawal_fee, usage_fee_rate, created_at
+  `).then(r => (r as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string; usage_fee_rate: string; created_at: string }> }).rows);
 
   const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, f.user_id));
   res.status(200).json({
@@ -212,11 +200,12 @@ router.post("/fees", async (req, res) => {
     role: user?.role ?? "unknown",
     depositFee: Number(f.deposit_fee),
     withdrawalFee: Number(f.withdrawal_fee),
+    usageFeeRate: Number(f.usage_fee_rate),
     createdAt: f.created_at,
   });
 });
 
-// PATCH /fees/:id — update fee config (validates child ≤ parent)
+// PATCH /fees/:id
 router.patch("/fees/:id", async (req, res) => {
   const caller = await getCallerFromToken(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
@@ -225,42 +214,36 @@ router.patch("/fees/:id", async (req, res) => {
   const parsed = UpdateFeeConfigBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
-  // Fetch the existing fee record to get userId
-  const existing = await db.execute(sql`SELECT id, user_id, deposit_fee, withdrawal_fee FROM fee_configs WHERE id = ${id}`);
-  const existingRows = (existing as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string }> }).rows;
+  const existing = await db.execute(sql`SELECT id, user_id, deposit_fee, withdrawal_fee, usage_fee_rate FROM fee_configs WHERE id = ${id}`);
+  const existingRows = (existing as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string; usage_fee_rate: string }> }).rows;
   if (existingRows.length === 0) { res.status(404).json({ error: "Not found" }); return; }
   const existingFee = existingRows[0];
 
   const newDeposit = parsed.data.depositFee !== undefined ? parsed.data.depositFee : Number(existingFee.deposit_fee);
   const newWithdrawal = parsed.data.withdrawalFee !== undefined ? parsed.data.withdrawalFee : Number(existingFee.withdrawal_fee);
+  const newUsageFeeRate = typeof (parsed.data as { usageFeeRate?: number }).usageFeeRate === "number"
+    ? (parsed.data as { usageFeeRate?: number }).usageFeeRate!
+    : Number(existingFee.usage_fee_rate);
 
-  // Range check
-  if (newDeposit < 0 || newDeposit > 100 || newWithdrawal < 0 || newWithdrawal > 100) {
-    res.status(400).json({ error: "수수료는 0~100% 사이여야 합니다" }); return;
+  if (newDeposit < 0 || newWithdrawal < 0) {
+    res.status(400).json({ error: "수수료는 0원 이상이어야 합니다" }); return;
+  }
+  if (newUsageFeeRate < 0 || newUsageFeeRate > 100) {
+    res.status(400).json({ error: "이용 수수료율은 0~100% 사이여야 합니다" }); return;
   }
 
-  // Cascade constraint
-  const validationError = await validateAgainstParent(existingFee.user_id, newDeposit, newWithdrawal);
-  if (validationError) { res.status(400).json({ error: validationError }); return; }
-
-  const updates: Record<string, string> = {};
-  if (parsed.data.depositFee !== undefined) updates.deposit_fee = String(parsed.data.depositFee);
-  if (parsed.data.withdrawalFee !== undefined) updates.withdrawal_fee = String(parsed.data.withdrawalFee);
-
-  if (Object.keys(updates).length === 0) {
-    res.status(400).json({ error: "No fields to update" });
-    return;
-  }
-
-  const setClauses = Object.entries(updates)
-    .map(([col, val]) => sql`${sql.raw(col)} = ${val}`)
-    .reduce((acc, clause, i) => i === 0 ? clause : sql`${acc}, ${clause}`);
+  const usageFeeError = await validateUsageFeeRateAgainstParent(existingFee.user_id, newUsageFeeRate);
+  if (usageFeeError) { res.status(400).json({ error: usageFeeError }); return; }
 
   const result = await db.execute(sql`
-    UPDATE fee_configs SET ${setClauses} WHERE id = ${id}
-    RETURNING id, user_id, deposit_fee, withdrawal_fee, created_at
+    UPDATE fee_configs
+    SET deposit_fee = ${newDeposit},
+        withdrawal_fee = ${newWithdrawal},
+        usage_fee_rate = ${String(newUsageFeeRate)}
+    WHERE id = ${id}
+    RETURNING id, user_id, deposit_fee, withdrawal_fee, usage_fee_rate, created_at
   `);
-  const rows = (result as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string; created_at: string }> }).rows;
+  const rows = (result as unknown as { rows: Array<{ id: number; user_id: number; deposit_fee: string; withdrawal_fee: string; usage_fee_rate: string; created_at: string }> }).rows;
   const f = rows[0];
   if (!f) { res.status(404).json({ error: "Not found" }); return; }
 
@@ -272,6 +255,7 @@ router.patch("/fees/:id", async (req, res) => {
     role: user?.role ?? "unknown",
     depositFee: Number(f.deposit_fee),
     withdrawalFee: Number(f.withdrawal_fee),
+    usageFeeRate: Number(f.usage_fee_rate),
     createdAt: f.created_at,
   });
 });

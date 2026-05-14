@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { db, adminUsersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
-import { z } from "zod/v4";
 import { LoginBody } from "@workspace/api-zod";
 
 const router = Router();
