@@ -21,6 +21,7 @@ import Profile from "./pages/profile";
 import MemberRegister from "./pages/member-register";
 import MemberLogin from "./pages/member-login";
 import Settlement from "./pages/settlement";
+import Landing from "./pages/landing";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,12 +32,6 @@ const queryClient = new QueryClient({
   },
 });
 
-function RedirectToDashboard() {
-  const [, setLocation] = useLocation();
-  setLocation("/dashboard");
-  return null;
-}
-
 function Router() {
   return (
     <Switch>
@@ -45,7 +40,7 @@ function Router() {
       <Route path="/member/login" component={MemberLogin} />
 
       <Route path="/">
-        <RedirectToDashboard />
+        <Landing />
       </Route>
 
       <Route path="/dashboard">
