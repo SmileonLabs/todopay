@@ -2,19 +2,10 @@ import { Router } from "express";
 import { db, membersTable, virtualAccountsTable, adminUsersTable } from "@workspace/db";
 import { eq, ilike, and, or, inArray, sql } from "drizzle-orm";
 import { ListMembersQueryParams, CreateMemberBody, UpdateMemberBody, UpdateMemberStatusBody } from "@workspace/api-zod";
-import { requireAdmin } from "../lib/auth.js";
+import { requireAdmin, simpleHash } from "../lib/auth.js";
+import { getAccessibleStoreIds } from "../lib/query-utils.js";
 
 const router = Router();
-
-function simpleHash(password: string): string {
-  let hash = 0;
-  for (let i = 0; i < password.length; i++) {
-    const char = password.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return hash.toString(36);
-}
 
 const BANKS = ["국민은행", "신한은행", "우리은행", "하나은행", "기업은행", "농협은행", "카카오뱅크"];
 
@@ -24,6 +15,7 @@ function generateAccountNumber(): string {
   return `${datePart}${randPart}`;
 }
 
+/** Format a single member with its virtual account and store name (for single-item endpoints). */
 async function formatMember(m: typeof membersTable.$inferSelect) {
   const [va] = await db.select().from(virtualAccountsTable)
     .where(and(eq(virtualAccountsTable.memberId, m.id), eq(virtualAccountsTable.status, "active")));
@@ -50,18 +42,45 @@ async function formatMember(m: typeof membersTable.$inferSelect) {
   };
 }
 
-async function getAccessibleStoreIds(caller: typeof adminUsersTable.$inferSelect): Promise<number[] | null> {
-  if (caller.role === "superadmin") return null;
-  const result = await db.execute(sql`
-    WITH RECURSIVE descendants AS (
-      SELECT id, role FROM admin_users WHERE id = ${caller.id}
-      UNION ALL
-      SELECT au.id, au.role FROM admin_users au
-      JOIN descendants d ON au.parent_id = d.id
-    )
-    SELECT id FROM descendants WHERE role = 'store'
-  `);
-  return (result as unknown as { rows: Array<{ id: number }> }).rows.map(r => Number(r.id));
+/** Batch-format multiple members, loading VAs and store names in 2 queries instead of 2×N. */
+async function formatMemberBatch(members: (typeof membersTable.$inferSelect)[]) {
+  if (members.length === 0) return [];
+
+  const memberIds = members.map(m => m.id);
+  const storeIds = [...new Set(members.filter(m => m.storeId).map(m => m.storeId!))];
+
+  const [activeVAs, stores] = await Promise.all([
+    db.select().from(virtualAccountsTable)
+      .where(and(inArray(virtualAccountsTable.memberId, memberIds), eq(virtualAccountsTable.status, "active"))),
+    storeIds.length > 0
+      ? db.select({ id: adminUsersTable.id, name: adminUsersTable.name })
+          .from(adminUsersTable).where(inArray(adminUsersTable.id, storeIds))
+      : Promise.resolve([]),
+  ]);
+
+  const vaMap = new Map(activeVAs.filter(va => va.memberId).map(va => [va.memberId!, va]));
+  const storeNameMap = new Map(stores.map(s => [s.id, s.name]));
+
+  return members.map(m => {
+    const va = vaMap.get(m.id);
+    const storeName = m.storeId ? (storeNameMap.get(m.storeId) ?? m.storeCode ?? null) : (m.storeCode ?? null);
+    return {
+      id: m.id,
+      loginId: m.loginId,
+      name: m.name,
+      phone: m.phone,
+      email: m.email ?? null,
+      storeCode: m.storeCode ?? null,
+      storeName,
+      birthdate: m.birthdate ?? null,
+      isVerified: m.isVerified,
+      isActive: m.isActive,
+      virtualAccountNumber: va?.accountNumber ?? null,
+      virtualAccountBank: va?.bankName ?? null,
+      virtualAccountStatus: va?.status ?? null,
+      createdAt: m.createdAt.toISOString(),
+    };
+  });
 }
 
 router.get("/members/register-link", async (req, res) => {
@@ -105,7 +124,7 @@ router.get("/members", async (req, res) => {
     db.select().from(membersTable).where(where).limit(limit).offset(offset),
     db.select({ count: sql<number>`count(*)` }).from(membersTable).where(where),
   ]);
-  const formatted = await Promise.all(members.map(formatMember));
+  const formatted = await formatMemberBatch(members);
   res.json({ items: formatted, total: Number(count) });
 });
 

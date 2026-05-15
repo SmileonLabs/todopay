@@ -3,6 +3,7 @@ import { db, transactionsTable, membersTable, adminUsersTable, feeConfigsTable, 
 import { eq, ilike, and, or, sql, gte, lte, inArray } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
+import { getAccessibleStoreIds, getStoresUnderOrg } from "../lib/query-utils.js";
 
 const router = Router();
 
@@ -17,57 +18,57 @@ interface HierarchyInfo {
   hqId: number | null;
 }
 
-async function getStoreHierarchy(storeId: number): Promise<HierarchyInfo> {
-  const info: HierarchyInfo = {
-    storeName: null, storeId,
-    agencyName: null, agencyId: null,
-    distributorName: null, distributorId: null,
-    hqName: null, hqId: null,
-  };
-  let currentId: number | null = storeId;
-  let isFirst = true;
-  while (currentId !== null) {
-    const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, currentId));
-    if (!user) break;
-    if (isFirst) {
-      info.storeName = user.name;
-      isFirst = false;
-    } else {
-      if (user.role === "agency") { info.agencyName = user.name; info.agencyId = user.id; }
-      else if (user.role === "distributor") { info.distributorName = user.name; info.distributorId = user.id; }
-      else if (user.role === "hq") { info.hqName = user.name; info.hqId = user.id; }
-    }
-    currentId = user.parentId ?? null;
+/**
+ * Batch-loads ancestor hierarchy for multiple stores in a single recursive CTE query.
+ * Replaces the old sequential per-store approach that caused N×depth DB round trips.
+ */
+async function getStoreHierarchiesBatch(storeIds: number[]): Promise<Map<number, HierarchyInfo>> {
+  const resultMap = new Map<number, HierarchyInfo>();
+  if (storeIds.length === 0) return resultMap;
+
+  for (const id of storeIds) {
+    resultMap.set(id, {
+      storeName: null, storeId: id,
+      agencyName: null, agencyId: null,
+      distributorName: null, distributorId: null,
+      hqName: null, hqId: null,
+    });
   }
-  return info;
-}
 
-async function getAccessibleStoreIds(caller: typeof adminUsersTable.$inferSelect): Promise<number[] | null> {
-  if (caller.role === "superadmin") return null;
-  if (caller.role === "store") return [caller.id];
+  const idsSql = sql.join(storeIds.map(id => sql`${id}`), sql`, `);
   const result = await db.execute(sql`
-    WITH RECURSIVE descendants AS (
-      SELECT id, role FROM admin_users WHERE id = ${caller.id}
+    WITH RECURSIVE ancestors AS (
+      SELECT id, name, role, parent_id, id AS origin_store_id
+      FROM admin_users
+      WHERE id IN (${idsSql})
       UNION ALL
-      SELECT au.id, au.role FROM admin_users au
-      JOIN descendants d ON au.parent_id = d.id
+      SELECT au.id, au.name, au.role, au.parent_id, a.origin_store_id
+      FROM admin_users au
+      JOIN ancestors a ON au.id = a.parent_id
     )
-    SELECT id FROM descendants WHERE role = 'store'
+    SELECT DISTINCT origin_store_id, id, name, role FROM ancestors
   `);
-  return (result as unknown as { rows: Array<{ id: number }> }).rows.map(r => Number(r.id));
-}
 
-async function getStoresUnderOrg(orgId: number): Promise<number[]> {
-  const result = await db.execute(sql`
-    WITH RECURSIVE descendants AS (
-      SELECT id, role FROM admin_users WHERE id = ${orgId}
-      UNION ALL
-      SELECT au.id, au.role FROM admin_users au
-      JOIN descendants d ON au.parent_id = d.id
-    )
-    SELECT id FROM descendants WHERE role = 'store'
-  `);
-  return (result as unknown as { rows: Array<{ id: number }> }).rows.map(r => Number(r.id));
+  type AncestorRow = { origin_store_id: number; id: number; name: string; role: string };
+  const rows = (result as unknown as { rows: AncestorRow[] }).rows;
+
+  for (const row of rows) {
+    const originId = Number(row.origin_store_id);
+    const info = resultMap.get(originId);
+    if (!info) continue;
+    const nodeId = Number(row.id);
+    if (nodeId === originId) {
+      info.storeName = row.name;
+    } else if (row.role === "agency") {
+      info.agencyName = row.name; info.agencyId = nodeId;
+    } else if (row.role === "distributor") {
+      info.distributorName = row.name; info.distributorId = nodeId;
+    } else if (row.role === "hq") {
+      info.hqName = row.name; info.hqId = nodeId;
+    }
+  }
+
+  return resultMap;
 }
 
 router.get("/transactions", async (req, res) => {
@@ -148,8 +149,7 @@ router.get("/transactions", async (req, res) => {
   const memberMap = new Map(members.map(m => [m.id, m]));
 
   const uniqueStoreIds = [...new Set(members.filter(m => m.storeId).map(m => m.storeId!))];
-  const hierarchyResults = await Promise.all(uniqueStoreIds.map(id => getStoreHierarchy(id)));
-  const hierarchyMap = new Map(hierarchyResults.map(h => [h.storeId, h]));
+  const hierarchyMap = await getStoreHierarchiesBatch(uniqueStoreIds);
 
   const formatted = txs.map((t) => {
     const member = t.memberId ? memberMap.get(t.memberId) : undefined;

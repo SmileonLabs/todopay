@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db, balanceRecordsTable, withdrawalsTable, adminUsersTable, storeBalancesTable } from "@workspace/db";
 import { eq, and, sql, gte, lte } from "drizzle-orm";
-import { ListBalanceRecordsQueryParams } from "@workspace/api-zod";
+import { ListBalanceRecordsQueryParams, CreateBalanceRecordBody } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
 
 const router = Router();
@@ -97,25 +97,25 @@ router.post("/balances", async (req, res) => {
     res.status(403).json({ error: "잔액 수동 입력은 최고관리자만 가능합니다" }); return;
   }
 
-  const { direction, category, amount, description } = req.body as {
-    direction?: string; category?: string; amount?: number; description?: string;
-  };
-  if (!direction || !["in", "out"].includes(direction)) {
+  const parsed = CreateBalanceRecordBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+
+  const { direction, category, amount, description } = parsed.data;
+
+  if (!["in", "out"].includes(direction)) {
     res.status(400).json({ error: "direction은 'in' 또는 'out'이어야 합니다" }); return;
   }
-  if (!category) { res.status(400).json({ error: "category를 입력해주세요" }); return; }
-  if (!amount || Number(amount) <= 0) { res.status(400).json({ error: "금액을 올바르게 입력해주세요" }); return; }
 
   const prevBalance = await getRunningBalance(undefined);
   const newBalance = direction === "in"
-    ? prevBalance + Number(amount)
-    : prevBalance - Number(amount);
+    ? prevBalance + amount
+    : prevBalance - amount;
 
   const [record] = await db.insert(balanceRecordsTable).values({
     userId: null,
     direction,
     category,
-    amount: Number(amount).toFixed(2),
+    amount: amount.toFixed(2),
     balance: newBalance.toFixed(2),
     description: description?.trim() || null,
   }).returning();

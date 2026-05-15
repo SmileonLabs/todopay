@@ -1,18 +1,9 @@
 import { Router } from "express";
 import { db, membersTable, virtualAccountsTable, adminUsersTable, transactionsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
+import { simpleHash } from "../lib/auth.js";
 
 const router = Router();
-
-function simpleHash(password: string): string {
-  let hash = 0;
-  for (let i = 0; i < password.length; i++) {
-    const char = password.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash;
-  }
-  return hash.toString(36);
-}
 
 async function getMemberWithAccount(memberId: number) {
   const [member] = await db.select().from(membersTable).where(eq(membersTable.id, memberId));
@@ -41,8 +32,7 @@ router.post("/member/auth/login", async (req, res) => {
     res.status(401).json({ error: "아이디 또는 비밀번호가 올바르지 않습니다" });
     return;
   }
-  const hash = simpleHash(password);
-  if (member.passwordHash !== hash) {
+  if (member.passwordHash !== simpleHash(password)) {
     res.status(401).json({ error: "아이디 또는 비밀번호가 올바르지 않습니다" });
     return;
   }

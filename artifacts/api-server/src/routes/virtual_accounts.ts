@@ -3,23 +3,9 @@ import { db, virtualAccountsTable, membersTable, adminUsersTable } from "@worksp
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { ListVirtualAccountsQueryParams } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
+import { getAccessibleStoreIds } from "../lib/query-utils.js";
 
 const router = Router();
-
-async function getAccessibleStoreIds(caller: typeof adminUsersTable.$inferSelect): Promise<number[] | null> {
-  if (caller.role === "superadmin") return null;
-  if (caller.role === "store") return [caller.id];
-  const result = await db.execute(sql`
-    WITH RECURSIVE descendants AS (
-      SELECT id, role FROM admin_users WHERE id = ${caller.id}
-      UNION ALL
-      SELECT au.id, au.role FROM admin_users au
-      JOIN descendants d ON au.parent_id = d.id
-    )
-    SELECT id FROM descendants WHERE role = 'store'
-  `);
-  return (result as unknown as { rows: Array<{ id: number }> }).rows.map(r => Number(r.id));
-}
 
 router.get("/virtual-accounts", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
@@ -61,21 +47,22 @@ router.get("/virtual-accounts", async (req, res) => {
     db.select({ count: sql<number>`count(*)` }).from(virtualAccountsTable).where(where),
   ]);
 
-  const formatted = await Promise.all(accounts.map(async (va) => {
-    let memberName = "";
-    if (va.memberId) {
-      const [m] = await db.select().from(membersTable).where(eq(membersTable.id, va.memberId));
-      memberName = m?.name ?? "";
-    }
-    return {
-      id: va.id,
-      accountNumber: va.accountNumber,
-      bankName: va.bankName,
-      status: va.status,
-      memberId: va.memberId ?? 0,
-      memberName,
-      createdAt: va.createdAt.toISOString(),
-    };
+  // Batch-load member names to avoid N+1 queries
+  const memberIds = [...new Set(accounts.filter(a => a.memberId).map(a => a.memberId!))];
+  const memberList = memberIds.length > 0
+    ? await db.select({ id: membersTable.id, name: membersTable.name })
+        .from(membersTable).where(inArray(membersTable.id, memberIds))
+    : [];
+  const memberNameMap = new Map(memberList.map(m => [m.id, m.name]));
+
+  const formatted = accounts.map(va => ({
+    id: va.id,
+    accountNumber: va.accountNumber,
+    bankName: va.bankName,
+    status: va.status,
+    memberId: va.memberId ?? 0,
+    memberName: va.memberId ? (memberNameMap.get(va.memberId) ?? "") : "",
+    createdAt: va.createdAt.toISOString(),
   }));
 
   res.json({ items: formatted, total: Number(count) });
@@ -102,7 +89,7 @@ router.get("/virtual-accounts/:id", async (req, res) => {
 
   let memberName = "";
   if (va.memberId) {
-    const [m] = await db.select().from(membersTable).where(eq(membersTable.id, va.memberId));
+    const [m] = await db.select({ name: membersTable.name }).from(membersTable).where(eq(membersTable.id, va.memberId));
     memberName = m?.name ?? "";
   }
   res.json({

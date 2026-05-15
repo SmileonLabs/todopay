@@ -157,9 +157,7 @@ router.post("/fees", async (req, res) => {
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
   const { userId, depositFee, withdrawalFee } = parsed.data;
-  const usageFeeRate = typeof (parsed.data as { usageFeeRate?: number }).usageFeeRate === "number"
-    ? (parsed.data as { usageFeeRate?: number }).usageFeeRate!
-    : 0;
+  const usageFeeRate = parsed.data.usageFeeRate ?? 0;
 
   if (!(await canManageFee(caller, userId))) {
     res.status(403).json({ error: "해당 계정의 수수료를 설정할 권한이 없습니다" }); return;
@@ -215,11 +213,9 @@ router.patch("/fees/:id", async (req, res) => {
     res.status(403).json({ error: "해당 계정의 수수료를 수정할 권한이 없습니다" }); return;
   }
 
-  const newDeposit = parsed.data.depositFee !== undefined ? parsed.data.depositFee : Number(existingFee.deposit_fee);
-  const newWithdrawal = parsed.data.withdrawalFee !== undefined ? parsed.data.withdrawalFee : Number(existingFee.withdrawal_fee);
-  const newUsageFeeRate = typeof (parsed.data as { usageFeeRate?: number }).usageFeeRate === "number"
-    ? (parsed.data as { usageFeeRate?: number }).usageFeeRate!
-    : Number(existingFee.usage_fee_rate);
+  const newDeposit = parsed.data.depositFee ?? Number(existingFee.deposit_fee);
+  const newWithdrawal = parsed.data.withdrawalFee ?? Number(existingFee.withdrawal_fee);
+  const newUsageFeeRate = parsed.data.usageFeeRate ?? Number(existingFee.usage_fee_rate);
 
   if (newDeposit < 0 || newWithdrawal < 0) {
     res.status(400).json({ error: "수수료는 0원 이상이어야 합니다" }); return;

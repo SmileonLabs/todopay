@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, withdrawalsTable, membersTable, adminUsersTable, feeConfigsTable, balanceRecordsTable, storeBalancesTable } from "@workspace/db";
-import { eq, ilike, and, or, sql, gte, lte } from "drizzle-orm";
+import { eq, ilike, and, or, sql, gte, lte, inArray } from "drizzle-orm";
 import { ListWithdrawalsQueryParams, CreateWithdrawalBody, RejectWithdrawalBody } from "@workspace/api-zod";
 import crypto from "crypto";
 import { requireAdmin } from "../lib/auth.js";
@@ -16,20 +16,13 @@ function getTomorrow10amKST(): Date {
   return new Date(tomorrowKST.getTime() - KST_OFFSET);
 }
 
-async function formatWithdrawal(w: typeof withdrawalsTable.$inferSelect) {
-  let memberName: string | null = null;
-  let storeName: string | null = null;
-  if (w.storeId) {
-    const [store] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, w.storeId));
-    storeName = store?.name ?? null;
-  } else if (w.memberId) {
-    const [m] = await db.select().from(membersTable).where(eq(membersTable.id, w.memberId));
-    memberName = m?.name ?? null;
-    if (m?.storeId) {
-      const [store] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, m.storeId));
-      storeName = store?.name ?? null;
-    }
-  }
+type WithdrawalRow = typeof withdrawalsTable.$inferSelect;
+
+function formatWithdrawalRow(
+  w: WithdrawalRow,
+  memberName: string | null,
+  storeName: string | null,
+) {
   return {
     id: w.id,
     trackingNumber: w.trackingNumber,
@@ -48,6 +41,71 @@ async function formatWithdrawal(w: typeof withdrawalsTable.$inferSelect) {
     availableAt: w.availableAt ? w.availableAt.toISOString() : null,
     createdAt: w.createdAt.toISOString(),
   };
+}
+
+/** Formats a single withdrawal with DB lookups (used for single-item endpoints). */
+async function formatWithdrawal(w: WithdrawalRow) {
+  let memberName: string | null = null;
+  let storeName: string | null = null;
+  if (w.storeId) {
+    const [store] = await db.select({ name: adminUsersTable.name }).from(adminUsersTable).where(eq(adminUsersTable.id, w.storeId));
+    storeName = store?.name ?? null;
+  } else if (w.memberId) {
+    const [m] = await db.select({ name: membersTable.name, storeId: membersTable.storeId }).from(membersTable).where(eq(membersTable.id, w.memberId));
+    memberName = m?.name ?? null;
+    if (m?.storeId) {
+      const [store] = await db.select({ name: adminUsersTable.name }).from(adminUsersTable).where(eq(adminUsersTable.id, m.storeId));
+      storeName = store?.name ?? null;
+    }
+  }
+  return formatWithdrawalRow(w, memberName, storeName);
+}
+
+/** Batch-formats multiple withdrawals, loading names in 2–3 queries instead of 2×N. */
+async function formatWithdrawalBatch(withdrawals: WithdrawalRow[]) {
+  if (withdrawals.length === 0) return [];
+
+  const storeIdsNeeded = [...new Set(withdrawals.filter(w => w.storeId).map(w => w.storeId!))];
+  const memberIdsNeeded = [...new Set(withdrawals.filter(w => !w.storeId && w.memberId).map(w => w.memberId!))];
+
+  const emptyStores: { id: number; name: string }[] = [];
+  const emptyMembers: { id: number; name: string; storeId: number | null }[] = [];
+  const [storeRows, memberRows] = await Promise.all([
+    storeIdsNeeded.length > 0
+      ? db.select({ id: adminUsersTable.id, name: adminUsersTable.name })
+          .from(adminUsersTable).where(inArray(adminUsersTable.id, storeIdsNeeded))
+      : Promise.resolve(emptyStores),
+    memberIdsNeeded.length > 0
+      ? db.select({ id: membersTable.id, name: membersTable.name, storeId: membersTable.storeId })
+          .from(membersTable).where(inArray(membersTable.id, memberIdsNeeded))
+      : Promise.resolve(emptyMembers),
+  ]);
+
+  const storeNameMap = new Map(storeRows.map(s => [s.id, s.name]));
+  const memberMap = new Map(memberRows.map(m => [m.id, m]));
+
+  // Load store names for any member-linked stores not already fetched
+  const memberStoreIds = [...new Set(
+    memberRows.filter(m => m.storeId && !storeNameMap.has(m.storeId!)).map(m => m.storeId!)
+  )];
+  if (memberStoreIds.length > 0) {
+    const extraStores = await db.select({ id: adminUsersTable.id, name: adminUsersTable.name })
+      .from(adminUsersTable).where(inArray(adminUsersTable.id, memberStoreIds));
+    for (const s of extraStores) storeNameMap.set(s.id, s.name);
+  }
+
+  return withdrawals.map(w => {
+    let memberName: string | null = null;
+    let storeName: string | null = null;
+    if (w.storeId) {
+      storeName = storeNameMap.get(w.storeId) ?? null;
+    } else if (w.memberId) {
+      const m = memberMap.get(w.memberId);
+      memberName = m?.name ?? null;
+      if (m?.storeId) storeName = storeNameMap.get(m.storeId) ?? null;
+    }
+    return formatWithdrawalRow(w, memberName, storeName);
+  });
 }
 
 router.get("/withdrawals/summary", async (req, res) => {
@@ -111,7 +169,7 @@ router.get("/withdrawals", async (req, res) => {
     }).from(withdrawalsTable).where(where),
   ]);
 
-  const formatted = await Promise.all(withdrawals.map(formatWithdrawal));
+  const formatted = await formatWithdrawalBatch(withdrawals);
   res.json({
     items: formatted,
     total: Number(count),
@@ -166,7 +224,7 @@ router.post("/withdrawals", async (req, res) => {
   const availableAt = getTomorrow10amKST();
   const trackingNumber = crypto.randomUUID().replace(/-/g, "").substring(0, 16).toUpperCase();
 
-  let newWithdrawal: typeof withdrawalsTable.$inferSelect | null = null;
+  let newWithdrawal: WithdrawalRow | null = null;
 
   try {
     await db.transaction(async (dbtx) => {
@@ -232,7 +290,7 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
     res.status(400).json({ error: `아직 출금 가능 시간이 아닙니다. ${formatted} 이후에 승인 가능합니다` }); return;
   }
 
-  let updated: typeof withdrawalsTable.$inferSelect | null = null;
+  let updated: WithdrawalRow | null = null;
 
   await db.transaction(async (dbtx) => {
     const [u] = await dbtx.update(withdrawalsTable)
@@ -269,7 +327,7 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
   const parsed = RejectWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
 
-  let rejected: typeof withdrawalsTable.$inferSelect | null = null;
+  let rejected: WithdrawalRow | null = null;
 
   try {
     await db.transaction(async (dbtx) => {

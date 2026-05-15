@@ -65,7 +65,8 @@ export async function hashPassword(password: string): Promise<string> {
   });
 }
 
-function legacySimpleHash(password: string): string {
+/** Legacy djb2-style hash used for member passwords (demo/MVP). */
+export function simpleHash(password: string): string {
   let hash = 0;
   for (let i = 0; i < password.length; i++) {
     const char = password.charCodeAt(i);
@@ -92,7 +93,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
       });
     });
   }
-  return legacySimpleHash(password) === storedHash;
+  return simpleHash(password) === storedHash;
 }
 
 export function checkRateLimit(key: string): boolean {

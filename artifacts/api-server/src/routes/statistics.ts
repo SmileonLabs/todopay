@@ -3,23 +3,9 @@ import { db, transactionsTable, membersTable, virtualAccountsTable, withdrawalsT
 import { eq, sql, gte, lte, and, inArray } from "drizzle-orm";
 import { GetDailyStatisticsQueryParams } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
+import { getAccessibleStoreIds } from "../lib/query-utils.js";
 
 const router = Router();
-
-async function getAccessibleStoreIds(caller: typeof adminUsersTable.$inferSelect): Promise<number[] | null> {
-  if (caller.role === "superadmin") return null;
-  if (caller.role === "store") return [caller.id];
-  const result = await db.execute(sql`
-    WITH RECURSIVE descendants AS (
-      SELECT id, role FROM admin_users WHERE id = ${caller.id}
-      UNION ALL
-      SELECT au.id, au.role FROM admin_users au
-      JOIN descendants d ON au.parent_id = d.id
-    )
-    SELECT id FROM descendants WHERE role = 'store'
-  `);
-  return (result as unknown as { rows: Array<{ id: number }> }).rows.map(r => Number(r.id));
-}
 
 router.get("/statistics/overview", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
