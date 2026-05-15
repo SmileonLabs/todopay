@@ -38,13 +38,22 @@ doc.registerFont('bold', FONT_BOLD);
 let y = 0;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+const PAGE_BOTTOM = H - 55; // safe drawing area bottom (786px)
+
 function newPage() {
   doc.addPage();
-  y = 0;
+  y = 40;
+}
+
+// Ensure at least `needed` px remains on current page; if not, start new page.
+function ensureSpace(needed) {
+  if (y + needed > PAGE_BOTTOM) newPage();
 }
 
 function text(str, opts = {}) {
   const { x = ML, width = CW, font = 'reg', size = 10, color = TEXT, align = 'left', moveDown = 0 } = opts;
+  const needed = doc.font(font).fontSize(size).heightOfString(str, { width }) + 4;
+  ensureSpace(needed);
   doc.font(font).fontSize(size).fillColor(color).text(str, x, y, { width, align, lineBreak: true });
   y = doc.y + moveDown;
 }
@@ -63,6 +72,7 @@ function hline(ly, color = BORDER) {
 }
 
 function sectionHeader(num, title, desc) {
+  // section headers always start on their own page — no overflow check needed
   rect(ML, y, CW, 70, NAVY2, null, 8);
   doc.save().circle(ML + CW - 30, y + 20, 28).fillColor(BLUE).fillOpacity(0.08).fill().restore();
   doc.font('bold').fontSize(8).fillColor(BLUE).text(num, ML + 14, y + 10, { width: CW - 20 });
@@ -72,6 +82,7 @@ function sectionHeader(num, title, desc) {
 }
 
 function h3(str) {
+  ensureSpace(50);
   y += 16;
   rect(ML, y, 4, 16, BLUE, null);
   doc.font('bold').fontSize(12).fillColor(NAVY2).text(str, ML + 10, y + 1, { width: CW - 10 });
@@ -79,12 +90,15 @@ function h3(str) {
 }
 
 function h4(str) {
+  ensureSpace(30);
   y += 8;
   doc.font('bold').fontSize(10).fillColor('#334155').text(str, ML, y, { width: CW });
   y = doc.y + 4;
 }
 
 function para(str, color = SLATE) {
+  const needed = doc.font('reg').fontSize(9.5).heightOfString(str, { width: CW }) + 6;
+  ensureSpace(needed);
   doc.font('reg').fontSize(9.5).fillColor(color).text(str, ML, y, { width: CW, lineBreak: true });
   y = doc.y + 6;
 }
@@ -92,6 +106,7 @@ function para(str, color = SLATE) {
 function infoBox(str, bg = INFO_BG, tc = INFO_TXT, border = '#3b82f6') {
   const measured = doc.font('reg').fontSize(9).heightOfString(str, { width: CW - 40 });
   const bh = measured + 22;
+  ensureSpace(bh + 8);
   rect(ML, y, 4, bh, border, null);
   rect(ML + 4, y, CW - 4, bh, bg, null);
   doc.font('reg').fontSize(9).fillColor(tc).text(str, ML + 14, y + 10, { width: CW - 30, lineBreak: true });
@@ -102,6 +117,8 @@ function warnBox(str) { infoBox(str, WARN_BG, WARN_TXT, '#eab308'); }
 function dangerBox(str) { infoBox(str, DANGER_BG, DANGER_TXT, '#ef4444'); }
 
 function step(num, title, desc) {
+  const descH = doc.font('reg').fontSize(9).heightOfString(desc, { width: CW - 24 });
+  ensureSpace(descH + 30);
   doc.save().circle(ML + 10, y + 8, 10).fillColor(BLUE).fill().restore();
   doc.font('bold').fontSize(8).fillColor(NAVY).text(String(num), ML + 7, y + 4);
   doc.font('bold').fontSize(9.5).fillColor(TEXT).text(title, ML + 24, y, { width: CW - 24 });
@@ -114,6 +131,20 @@ function table(headers, rows, colWidths) {
   const TH = 20;
   const TD = 18;
   const totalW = colWidths.reduce((a, b) => a + b, 0);
+
+  // Pre-calculate all row heights
+  const rowHeights = rows.map(row =>
+    row.reduce((max, cell, ci) => {
+      const h = doc.font('reg').fontSize(8.5).heightOfString(String(cell), { width: colWidths[ci] - 8 });
+      return Math.max(max, h + 10);
+    }, TD)
+  );
+  const totalH = TH + rowHeights.reduce((a, b) => a + b, 0) + 10;
+
+  // If the whole table fits on remaining page, draw it; otherwise start new page
+  // For very tall tables, we still start a new page and let it overflow naturally
+  ensureSpace(Math.min(totalH, PAGE_BOTTOM - 80));
+
   rect(ML, y, totalW, TH, NAVY2, null, 0);
   let cx = ML;
   headers.forEach((h, i) => {
@@ -122,11 +153,19 @@ function table(headers, rows, colWidths) {
   });
   y += TH;
   rows.forEach((row, ri) => {
+    const rowH = rowHeights[ri];
+    // Mid-table page break: if a row won't fit, move to new page and redraw header
+    if (y + rowH > PAGE_BOTTOM) {
+      newPage();
+      rect(ML, y, totalW, TH, NAVY2, null, 0);
+      let hx = ML;
+      headers.forEach((h, i) => {
+        doc.font('bold').fontSize(8.5).fillColor(WHITE).text(h, hx + 6, y + 5, { width: colWidths[i] - 8 });
+        hx += colWidths[i];
+      });
+      y += TH;
+    }
     const bg = ri % 2 === 0 ? WHITE : LIGHT_BG;
-    const rowH = row.reduce((max, cell, ci) => {
-      const h = doc.font('reg').fontSize(8.5).heightOfString(String(cell), { width: colWidths[ci] - 8 });
-      return Math.max(max, h + 10);
-    }, TD);
     rect(ML, y, totalW, rowH, bg, null);
     doc.save().moveTo(ML, y + rowH).lineTo(ML + totalW, y + rowH).strokeColor(BORDER).lineWidth(0.3).stroke().restore();
     cx = ML;
@@ -145,6 +184,7 @@ function card2(title1, body1, title2, body2) {
   const h1 = doc.font('reg').fontSize(8.5).heightOfString(body1, { width: cw - 24 }) + 38;
   const h2 = doc.font('reg').fontSize(8.5).heightOfString(body2, { width: cw - 24 }) + 38;
   const ch = Math.max(h1, h2);
+  ensureSpace(ch + 10);
   rect(ML, y, cw, ch, LIGHT_BG, BORDER, 6);
   doc.font('bold').fontSize(9).fillColor(TEXT).text(title1, ML + 10, y + 10, { width: cw - 20 });
   doc.font('reg').fontSize(8.5).fillColor(MUTED).text(body1, ML + 10, y + 26, { width: cw - 20, lineBreak: true });
@@ -159,6 +199,7 @@ function card3(items) {
   const cw = (CW - 20) / 3;
   const heights = items.map(it => doc.font('reg').fontSize(8.5).heightOfString(it.body, { width: cw - 20 }) + 38);
   const ch = Math.max(...heights);
+  ensureSpace(ch + 10);
   items.forEach((it, i) => {
     const ix = ML + i * (cw + 10);
     rect(ix, y, cw, ch, LIGHT_BG, BORDER, 6);
