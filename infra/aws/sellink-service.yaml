@@ -1,0 +1,167 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Isolated Sellink console service sharing TodoPay VPC, ALB and RDS instance.
+
+Parameters:
+  ClusterName: { Type: String, Default: todopay-prod }
+  VpcId: { Type: AWS::EC2::VPC::Id }
+  AppSubnetA: { Type: AWS::EC2::Subnet::Id }
+  AppSubnetC: { Type: AWS::EC2::Subnet::Id }
+  ApplicationSecurityGroup: { Type: AWS::EC2::SecurityGroup::Id }
+  HttpsListenerArn: { Type: String }
+  ListenerRulePriority: { Type: Number, Default: 100 }
+  Image: { Type: String }
+  MigrationImage: { Type: String }
+  DatabaseUrlSecretArn: { Type: String }
+  SessionSecretArn: { Type: String }
+  OtpEncryptionKeySecretArn: { Type: String }
+  RedisUrlSecretArn: { Type: String }
+  TodoPayApiKeySecretArn: { Type: String }
+  TodoPayWebhookSecretArn: { Type: String }
+  DesiredCount: { Type: Number, Default: 2, MinValue: 2, MaxValue: 8 }
+  HostedZoneId: { Type: String }
+  LoadBalancerDnsName: { Type: String }
+  LoadBalancerHostedZoneId: { Type: String }
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties: { LogGroupName: /ecs/sellink/api, RetentionInDays: 90 }
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: "sts:AssumeRole" }]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy]
+      Policies:
+        - PolicyName: ReadSellinkRuntimeSecrets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ["secretsmanager:GetSecretValue"]
+                Resource: [!Ref DatabaseUrlSecretArn, !Ref SessionSecretArn, !Ref OtpEncryptionKeySecretArn, !Ref RedisUrlSecretArn, !Ref TodoPayApiKeySecretArn, !Ref TodoPayWebhookSecretArn]
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{ Effect: Allow, Principal: { Service: ecs-tasks.amazonaws.com }, Action: "sts:AssumeRole" }]
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      TargetType: ip
+      Protocol: HTTP
+      Port: 8080
+      HealthCheckPath: /api/healthz
+      HealthCheckIntervalSeconds: 20
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: { HttpCode: "200" }
+  HostRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpsListenerArn
+      Priority: !Ref ListenerRulePriority
+      Conditions: [{ Field: host-header, Values: [admin.sellink.todopay.io] }]
+      Actions: [{ Type: forward, TargetGroupArn: !Ref TargetGroup }]
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: sellink-api
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: sellink-api
+          Image: !Ref Image
+          Essential: true
+          PortMappings: [{ ContainerPort: 8080, Protocol: tcp }]
+          Environment:
+            - { Name: NODE_ENV, Value: production }
+            - { Name: PORT, Value: "8080" }
+            - { Name: CORS_ORIGINS, Value: https://admin.sellink.todopay.io }
+            - { Name: PAYMENT_INTEGRATION_ENABLED, Value: "false" }
+            - { Name: INTERNAL_FEE_PROCESSING_ENABLED, Value: "false" }
+            - { Name: TODOPAY_API_BASE_URL, Value: https://api.todopay.io }
+            - { Name: REQUIRE_REDIS, Value: "true" }
+          Secrets:
+            - { Name: DATABASE_URL, ValueFrom: !Ref DatabaseUrlSecretArn }
+            - { Name: SESSION_SECRET, ValueFrom: !Ref SessionSecretArn }
+            - { Name: OTP_ENCRYPTION_KEY, ValueFrom: !Ref OtpEncryptionKeySecretArn }
+            - { Name: REDIS_URL, ValueFrom: !Ref RedisUrlSecretArn }
+            - { Name: TODOPAY_API_KEY, ValueFrom: !Ref TodoPayApiKeySecretArn }
+            - { Name: TODOPAY_WEBHOOK_SECRET, ValueFrom: !Ref TodoPayWebhookSecretArn }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          HealthCheck:
+            Command: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:8080/api/readyz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 30
+  MigrationTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: sellink-migration
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "256"
+      Memory: "512"
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: migrate
+          Image: !Ref MigrationImage
+          Essential: true
+          Secrets:
+            - { Name: DATABASE_URL, ValueFrom: !Ref DatabaseUrlSecretArn }
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: migration
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn: HostRule
+    Properties:
+      Cluster: !Ref ClusterName
+      ServiceName: sellink-api
+      TaskDefinition: !Ref TaskDefinition
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        DeploymentCircuitBreaker: { Enable: true, Rollback: true }
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          Subnets: [!Ref AppSubnetA, !Ref AppSubnetC]
+          SecurityGroups: [!Ref ApplicationSecurityGroup]
+      LoadBalancers: [{ ContainerName: sellink-api, ContainerPort: 8080, TargetGroupArn: !Ref TargetGroup }]
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: admin.sellink.todopay.io.
+      Type: A
+      AliasTarget:
+        DNSName: !Ref LoadBalancerDnsName
+        HostedZoneId: !Ref LoadBalancerHostedZoneId
+        EvaluateTargetHealth: true
+
+Outputs:
+  ServiceName: { Value: !GetAtt Service.Name }
+  TargetGroupArn: { Value: !Ref TargetGroup }
+  MigrationTaskDefinitionArn: { Value: !Ref MigrationTaskDefinition }

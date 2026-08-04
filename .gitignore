@@ -41,6 +41,12 @@ testem.log
 .DS_Store
 Thumbs.db
 
+# Secrets (keep committed templates only)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 

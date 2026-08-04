@@ -1,15 +1,21 @@
 import crypto from "crypto";
 import { db, adminUsersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { redis } from "./redis.js";
+import { allowRequest, resetRequest } from "./rate-limit.js";
 
-const SECRET = process.env.SESSION_SECRET ?? "dev-fallback-secret-change-in-prod";
+const configuredSecret = process.env.SESSION_SECRET;
+if (process.env.NODE_ENV === "production" && !configuredSecret) {
+  throw new Error("SESSION_SECRET must be configured in production");
+}
+const SECRET = configuredSecret ?? crypto.randomBytes(48).toString("hex");
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
 const KEY_LENGTH = 64;
 
 const tokenBlacklist = new Set<string>();
+const adminSessionNotBefore = new Map<number, number>();
 
-const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_ATTEMPTS = 10;
 const WINDOW_MS = 15 * 60 * 1000;
 
@@ -20,7 +26,56 @@ export function signToken(id: number, loginId: string): string {
   return `${b64}.${sig}`;
 }
 
-export function verifyToken(authHeader: string | undefined): { id: number; loginId: string } | null {
+export function signMemberToken(id: number, loginId: string): string {
+  const payload = Buffer.from(JSON.stringify({
+    type: "member",
+    id,
+    loginId,
+    issuedAt: Date.now(),
+  })).toString("base64url");
+  const signature = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+export function verifyMemberToken(
+  authHeader: string | undefined,
+): { id: number; loginId: string } | null {
+  if (!authHeader?.startsWith("Bearer ")) return null;
+  const token = authHeader.slice(7);
+  if (tokenBlacklist.has(token)) return null;
+
+  const separator = token.lastIndexOf(".");
+  if (separator <= 0) return null;
+  const payload = token.slice(0, separator);
+  const signature = token.slice(separator + 1);
+  const expected = crypto.createHmac("sha256", SECRET).update(payload).digest("base64url");
+  if (signature.length !== expected.length) return null;
+
+  try {
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
+      type?: string;
+      id?: number;
+      loginId?: string;
+      issuedAt?: number;
+    };
+    if (
+      parsed.type !== "member"
+      || !Number.isInteger(parsed.id)
+      || typeof parsed.loginId !== "string"
+      || typeof parsed.issuedAt !== "number"
+      || Date.now() - parsed.issuedAt > TOKEN_TTL_MS
+      || parsed.issuedAt > Date.now() + 60_000
+    ) return null;
+    return { id: parsed.id!, loginId: parsed.loginId };
+  } catch {
+    return null;
+  }
+}
+
+export function verifyToken(
+  authHeader: string | undefined,
+): { id: number; loginId: string; issuedAt: number } | null {
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.slice(7);
   if (tokenBlacklist.has(token)) return null;
@@ -47,12 +102,65 @@ export function verifyToken(authHeader: string | undefined): { id: number; login
   if (isNaN(id) || isNaN(timestamp)) return null;
   if (Date.now() - timestamp > TOKEN_TTL_MS) return null;
 
-  return { id, loginId };
+  return { id, loginId, issuedAt: timestamp };
 }
 
-export function invalidateToken(authHeader: string | undefined): void {
+function tokenFingerprint(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+export async function invalidateToken(authHeader: string | undefined): Promise<void> {
   if (!authHeader?.startsWith("Bearer ")) return;
-  tokenBlacklist.add(authHeader.slice(7));
+  const token = authHeader.slice(7);
+  tokenBlacklist.add(token);
+  if (redis) {
+    await redis.set(
+      `sellink:revoked-token:${tokenFingerprint(token)}`,
+      "1",
+      "EX",
+      Math.ceil(TOKEN_TTL_MS / 1000),
+    );
+  }
+}
+
+export async function isTokenInvalidated(authHeader: string | undefined): Promise<boolean> {
+  if (!authHeader?.startsWith("Bearer ")) return true;
+  const token = authHeader.slice(7);
+  if (tokenBlacklist.has(token)) return true;
+  return redis
+    ? (await redis.exists(`sellink:revoked-token:${tokenFingerprint(token)}`)) === 1
+    : false;
+}
+
+export async function invalidateAdminSessions(userId: number): Promise<void> {
+  const notBefore = Date.now();
+  adminSessionNotBefore.set(userId, notBefore);
+  if (redis) {
+    await redis.set(
+      `sellink:admin-session-not-before:${userId}`,
+      String(notBefore),
+      "EX",
+      Math.ceil(TOKEN_TTL_MS / 1000),
+    );
+  }
+}
+
+async function isAdminSessionInvalidated(
+  userId: number,
+  issuedAt: number,
+): Promise<boolean> {
+  let notBefore = adminSessionNotBefore.get(userId) ?? null;
+  if (redis) {
+    const stored = await redis.get(`sellink:admin-session-not-before:${userId}`);
+    if (stored !== null) {
+      const parsed = Number(stored);
+      if (Number.isFinite(parsed)) {
+        notBefore = parsed;
+        adminSessionNotBefore.set(userId, parsed);
+      }
+    }
+  }
+  return notBefore !== null && issuedAt <= notBefore;
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -76,6 +184,10 @@ export function simpleHash(password: string): string {
   return hash.toString(36);
 }
 
+export function isLegacyPasswordHash(storedHash: string): boolean {
+  return !storedHash.startsWith("scrypt:");
+}
+
 export async function verifyPassword(password: string, storedHash: string): Promise<boolean> {
   if (storedHash.startsWith("scrypt:")) {
     const parts = storedHash.split(":");
@@ -96,19 +208,15 @@ export async function verifyPassword(password: string, storedHash: string): Prom
   return simpleHash(password) === storedHash;
 }
 
-export function checkRateLimit(key: string): boolean {
-  const now = Date.now();
-  const entry = loginAttempts.get(key);
-  if (!entry || now > entry.resetAt) {
-    loginAttempts.set(key, { count: 1, resetAt: now + WINDOW_MS });
-    return true;
-  }
-  entry.count++;
-  return entry.count <= MAX_ATTEMPTS;
+export async function checkRateLimit(key: string, limit = MAX_ATTEMPTS): Promise<boolean> {
+  return allowRequest("login", key, {
+    limit,
+    windowSeconds: Math.ceil(WINDOW_MS / 1000),
+  });
 }
 
-export function resetRateLimit(key: string): void {
-  loginAttempts.delete(key);
+export async function resetRateLimit(key: string): Promise<void> {
+  await resetRequest("login", key);
 }
 
 export async function requireAdmin(
@@ -117,6 +225,8 @@ export async function requireAdmin(
 ): Promise<typeof adminUsersTable.$inferSelect | null> {
   const parsed = verifyToken(authHeader);
   if (!parsed) return null;
+  if (await isTokenInvalidated(authHeader)) return null;
+  if (await isAdminSessionInvalidated(parsed.id, parsed.issuedAt)) return null;
   const [user] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, parsed.id));
   if (!user) return null;
   if (opts.checkActive !== false && !user.isActive) return null;

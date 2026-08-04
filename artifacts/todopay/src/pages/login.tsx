@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import logo from "@/assets/logo.svg";
+import logo from "@/assets/todopay-logo-white.png";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,13 @@ import { Loader2 } from "lucide-react";
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const { signIn, user, isLoading } = useAuth();
+  const {
+    signIn,
+    user,
+    isLoading,
+    sessionMessage,
+    clearSessionMessage,
+  } = useAuth();
   const { toast } = useToast();
 
   const [loginId, setLoginId] = useState("");
@@ -65,7 +71,7 @@ export default function Login() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md space-y-8">
         <div className="flex justify-center">
-          <img src={logo} alt="TodoPay" className="h-56 w-auto brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-auto w-72" />
         </div>
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm shadow-2xl">
@@ -73,6 +79,23 @@ export default function Login() {
             <CardTitle className="text-2xl text-center">관리자 로그인</CardTitle>
           </CardHeader>
           <CardContent>
+            {sessionMessage && (
+              <div
+                role="alert"
+                className="mb-4 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-200"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span>{sessionMessage}</span>
+                  <button
+                    type="button"
+                    className="text-xs text-amber-100/70 hover:text-amber-100"
+                    onClick={clearSessionMessage}
+                  >
+                    닫기
+                  </button>
+                </div>
+              </div>
+            )}
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="loginId">아이디</Label>

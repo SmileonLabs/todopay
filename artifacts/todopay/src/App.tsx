@@ -1,27 +1,28 @@
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/contexts/auth-context";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
+import { CapabilityGuard } from "@/components/capability-guard";
 
-import Login from "./pages/login";
-import Dashboard from "./pages/dashboard";
-import Withdrawals from "./pages/withdrawals";
-import Transactions from "./pages/transactions";
-import Balances from "./pages/balances";
-import Members from "./pages/members";
-import Users from "./pages/users";
-import Fees from "./pages/fees";
-import Statistics from "./pages/statistics";
-import Notices from "./pages/notices";
-import Otp from "./pages/otp";
-import Profile from "./pages/profile";
-import MemberRegister from "./pages/member-register";
-import MemberLogin from "./pages/member-login";
-import Settlement from "./pages/settlement";
-import Landing from "./pages/landing";
+const Login = lazy(() => import("./pages/login"));
+const Dashboard = lazy(() => import("./pages/todopay-dashboard"));
+const Withdrawals = lazy(() => import("./pages/todopay-withdrawals"));
+const Transactions = lazy(() => import("./pages/todopay-transactions"));
+const Balances = lazy(() => import("./pages/todopay-balance"));
+const Members = lazy(() => import("./pages/todopay-members"));
+const Users = lazy(() => import("./pages/users"));
+const Fees = lazy(() => import("./pages/fees"));
+const Statistics = lazy(() => import("./pages/statistics"));
+const Notices = lazy(() => import("./pages/notices"));
+const Otp = lazy(() => import("./pages/otp"));
+const Profile = lazy(() => import("./pages/profile"));
+const MemberLogin = lazy(() => import("./pages/member-login"));
+const MemberAccess = lazy(() => import("./pages/member-access"));
+const Landing = lazy(() => import("./pages/landing"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,8 +37,9 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
-      <Route path="/register/member" component={MemberRegister} />
-      <Route path="/member/login" component={MemberLogin} />
+      <Route path="/register/member" component={MemberAccess} />
+      <Route path="/member/login" component={MemberAccess} />
+      <Route path="/member/portal" component={MemberLogin} />
 
       <Route path="/">
         <Landing />
@@ -56,28 +58,28 @@ function Router() {
         <Layout><Balances /></Layout>
       </Route>
       <Route path="/settlement">
-        <Layout><Settlement /></Layout>
+        <Layout><Balances /></Layout>
       </Route>
       <Route path="/members">
         <Layout><Members /></Layout>
       </Route>
       <Route path="/users">
-        <Layout><Users /></Layout>
+        <Layout><CapabilityGuard capability="organizations.read"><Users /></CapabilityGuard></Layout>
       </Route>
       <Route path="/fees">
-        <Layout><Fees /></Layout>
+        <Layout><CapabilityGuard capability="fees.read"><Fees /></CapabilityGuard></Layout>
       </Route>
       <Route path="/statistics">
-        <Layout><Statistics /></Layout>
+        <Layout><CapabilityGuard capability="statistics.read"><Statistics /></CapabilityGuard></Layout>
       </Route>
       <Route path="/notices">
-        <Layout><Notices /></Layout>
+        <Layout><CapabilityGuard capability="notices.read"><Notices /></CapabilityGuard></Layout>
       </Route>
       <Route path="/otp">
-        <Layout><Otp /></Layout>
+        <Layout><CapabilityGuard capability="otp.manage"><Otp /></CapabilityGuard></Layout>
       </Route>
       <Route path="/profile">
-        <Layout><Profile /></Layout>
+        <Layout><CapabilityGuard capability="profile.manage"><Profile /></CapabilityGuard></Layout>
       </Route>
 
       <Route component={NotFound} />
@@ -91,7 +93,9 @@ function App() {
       <AuthProvider>
         <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
+            <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-muted-foreground">화면을 불러오는 중입니다.</div>}>
+              <Router />
+            </Suspense>
           </WouterRouter>
           <Toaster />
         </TooltipProvider>

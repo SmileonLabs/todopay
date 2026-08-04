@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import logo from "@/assets/logo.svg";
+import logo from "@/assets/todopay-logo-white.png";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -91,7 +91,7 @@ export default function MemberRegister() {
     if (!form.loginId.trim()) e.loginId = "아이디를 입력해주세요";
     else if (form.loginId.length < 4) e.loginId = "아이디는 4자 이상이어야 합니다";
     if (!form.password) e.password = "비밀번호를 입력해주세요";
-    else if (form.password.length < 6) e.password = "비밀번호는 6자 이상이어야 합니다";
+    else if (form.password.length < 8) e.password = "비밀번호는 8자 이상이어야 합니다";
     if (form.password !== form.passwordConfirm) e.passwordConfirm = "비밀번호가 일치하지 않습니다";
     if (!form.phone.trim()) e.phone = "전화번호를 입력해주세요";
     else if (form.phone.replace(/\D/g, "").length < 10) e.phone = "올바른 전화번호를 입력해주세요";
@@ -124,7 +124,7 @@ export default function MemberRegister() {
     setLoading(true);
     setApiError("");
     try {
-      const res = await fetch(apiUrl("api/members"), {
+      const res = await fetch(apiUrl("api/members/register"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -159,7 +159,7 @@ export default function MemberRegister() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex justify-center">
-            <img src={logo} alt="TodoPay" className="h-20 w-auto brightness-0 invert" />
+            <img src={logo} alt="TodoPay" className="h-auto w-56" />
           </div>
           <Card className="bg-card border-border/50">
             <CardContent className="pt-8 pb-8 flex flex-col items-center text-center space-y-6">
@@ -210,7 +210,7 @@ export default function MemberRegister() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-5">
         <div className="flex flex-col items-center gap-2">
-          <img src={logo} alt="TodoPay" className="h-20 w-auto brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-auto w-56" />
           <p className="text-xs text-muted-foreground uppercase tracking-widest">회원 가입</p>
         </div>
 

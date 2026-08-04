@@ -1050,6 +1050,14 @@ components:
         permission:
           type: string
           description: "readonly | admin | finance"
+        capabilities:
+          type: array
+          items:
+            type: string
+          description: Server-authoritative capabilities for the signed-in user
+        financialScopeReady:
+          type: boolean
+          description: Whether TodoPay financial data can be safely scoped for this user
         isActive:
           type: boolean
         useOtp:
@@ -1108,6 +1116,9 @@ components:
       required: [newPassword]
       properties:
         newPassword:
+          type: string
+          minLength: 8
+        currentPassword:
           type: string
 
     UserPermissionUpdate:
@@ -1557,6 +1568,16 @@ components:
           type: ["number", "null"]
         parentUsageFeeRate:
           type: ["number", "null"]
+          description: "상위 계정의 누적 수수료 기준율 (%)"
+        minChildUsageFeeRate:
+          type: ["number", "null"]
+          description: "설정된 직속 하위 계정 중 가장 낮은 누적 수수료 기준율 (%)"
+        allocatedUsageFeeRate:
+          type: ["number", "null"]
+          description: "매장 상위 조직 배분 합계 (%)"
+        storeShare:
+          type: ["number", "null"]
+          description: "상위 조직 배분 후 매장 잔여 몫 (%)"
 
     FeeConfig:
       type: object
@@ -1699,14 +1720,19 @@ components:
     # OTP
     OtpSettings:
       type: object
-      required: [useOtpForDeposit, useOtpForWithdrawal]
+      required: [useOtpForDeposit, useOtpForWithdrawal, enrolled]
       properties:
         useOtpForDeposit:
           type: boolean
         useOtpForWithdrawal:
           type: boolean
-        otpSecret:
+        enrolled:
+          type: boolean
+        verifiedAt:
           type: ["string", "null"]
+          format: date-time
+        enrollmentPending:
+          type: boolean
 
     OtpSettingsUpdate:
       type: object

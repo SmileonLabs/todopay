@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import logo from "@/assets/logo.svg";
+import logo from "@/assets/todopay-logo-white.png";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { useLogout } from "@workspace/api-client-react";
@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
+import { can, hasFinancialScope, type Capability } from "@/lib/access-control";
 
 const ROLE_COLORS: Record<string, string> = {
   superadmin: "border-purple-500/50 text-purple-400",
@@ -81,20 +82,33 @@ export function Layout({ children }: { children: React.ReactNode }) {
     });
   };
 
-  const navItems = [
+  const allNavItems: Array<{
+    href: string;
+    label: string;
+    icon: React.ElementType;
+    capability?: Capability;
+    requiresFinancialScope?: boolean;
+    hideForStore?: boolean;
+  }> = [
     { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
-    { href: "/withdrawals", label: "출금 관리", icon: ArrowDownToLine },
-    { href: "/transactions", label: "구매 내역", icon: ArrowRightLeft },
-    { href: "/balances", label: user.role === "store" ? "매장 잔액" : "잔액 기록", icon: Wallet },
-    { href: "/settlement", label: "수수료 정산", icon: PiggyBank },
-    { href: "/members", label: "회원 관리", icon: Users },
-    { href: "/users", label: "하부 조직 관리", icon: ShieldCheck },
-    { href: "/fees", label: "수수료 설정", icon: Receipt },
-    { href: "/statistics", label: "일자별 통계", icon: BarChart3 },
-    { href: "/notices", label: "공지사항", icon: Bell },
-    { href: "/otp", label: "OTP 설정", icon: KeyRound },
-    { href: "/profile", label: "내 계정", icon: UserCog },
+    { href: "/transactions", label: "결제 내역", icon: ArrowRightLeft, capability: "financial.read", requiresFinancialScope: true },
+    { href: "/withdrawals", label: "출금 관리", icon: ArrowDownToLine, capability: "financial.read", requiresFinancialScope: true },
+    { href: "/balances", label: "잔액·정산", icon: Wallet, capability: "financial.read", requiresFinancialScope: true },
+    { href: "/members", label: "회원·가상계좌", icon: Users, capability: "members.read", requiresFinancialScope: true },
+    { href: "/users", label: "하부 조직 관리", icon: ShieldCheck, capability: "organizations.read", hideForStore: true },
+    { href: "/fees", label: "내부 수수료 설정", icon: Receipt, capability: "fees.read", hideForStore: true },
+    { href: "/statistics", label: "일자별 통계", icon: BarChart3, capability: "statistics.read", requiresFinancialScope: true },
+    { href: "/notices", label: "공지사항", icon: Bell, capability: "notices.read" },
+    { href: "/otp", label: "OTP 설정", icon: KeyRound, capability: "otp.manage" },
+    { href: "/profile", label: "내 계정", icon: UserCog, capability: "profile.manage" },
   ];
+
+  const navItems = allNavItems.filter((item) => {
+    if (item.capability && !can(user, item.capability)) return false;
+    if (item.requiresFinancialScope && !hasFinancialScope(user)) return false;
+    if (item.hideForStore && user.role === "store") return false;
+    return true;
+  });
 
   return (
     <div className="flex h-screen bg-background overflow-hidden font-sans">
@@ -119,7 +133,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         ].join(" ")}
       >
         <div className="h-16 flex items-center px-5 border-b border-sidebar-border shrink-0 justify-between">
-          <img src={logo} alt="TodoPay" className="h-[84px] w-auto brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-auto w-40" />
           <button
             className="md:hidden text-muted-foreground hover:text-foreground p-1"
             onClick={() => setSidebarOpen(false)}
@@ -181,7 +195,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <img src={logo} alt="TodoPay" className="h-12 w-auto md:hidden brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-auto w-32 md:hidden" />
           <div className="flex-1" />
           <span className="text-xs text-muted-foreground hidden sm:block">
             {ROLE_LABELS[user.role] ?? user.role} · {user.name}

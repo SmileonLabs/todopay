@@ -13,16 +13,20 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate } from "@/lib/format";
 import { Loader2, Plus, Pencil, Trash2, Pin } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Notice } from "@workspace/api-client-react";
+import { useAuth } from "@/contexts/auth-context";
+import { can } from "@/lib/access-control";
 
 export default function Notices() {
   const { toast } = useToast();
+  const { user } = useAuth();
+  const canManage = can(user, "notices.manage");
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
   const [formOpen, setFormOpen] = useState(false);
@@ -89,9 +93,11 @@ export default function Notices() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">공지사항</h1>
-        <Button onClick={openCreate} className="bg-primary text-black hover:bg-primary/90">
-          <Plus className="h-4 w-4 mr-2" />공지 등록
-        </Button>
+        {canManage && (
+          <Button onClick={openCreate} className="bg-primary text-black hover:bg-primary/90">
+            <Plus className="h-4 w-4 mr-2" />공지 등록
+          </Button>
+        )}
       </div>
 
       {isLoading ? (
@@ -110,7 +116,7 @@ export default function Notices() {
                     )}
                     <h3 className="font-semibold">{n.title}</h3>
                   </div>
-                  <div className="flex gap-1 shrink-0">
+                  {canManage && <div className="flex gap-1 shrink-0">
                     <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground hover:text-foreground" onClick={() => handleTogglePin(n)} title={n.isPinned ? "고정 해제" : "상단 고정"}>
                       <Pin className={`h-3 w-3 ${n.isPinned ? "text-primary" : ""}`} />
                     </Button>
@@ -120,7 +126,7 @@ export default function Notices() {
                     <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10" onClick={() => handleDelete(n.id)}>
                       <Trash2 className="h-3 w-3" />
                     </Button>
-                  </div>
+                  </div>}
                 </div>
                 <p className="text-sm text-muted-foreground mt-2 whitespace-pre-wrap">{n.content}</p>
                 <p className="text-xs text-muted-foreground/60 mt-3">{formatDate(n.createdAt)}{n.updatedAt ? ` · 수정됨 ${formatDate(n.updatedAt)}` : ""}</p>
@@ -145,7 +151,12 @@ export default function Notices() {
 
       <Dialog open={formOpen} onOpenChange={setFormOpen}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editTarget ? "공지 수정" : "공지 등록"}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{editTarget ? "공지 수정" : "공지 등록"}</DialogTitle>
+            <DialogDescription>
+              가맹점 관리자에게 표시할 공지 내용을 입력합니다.
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>제목</Label>

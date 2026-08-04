@@ -22,6 +22,10 @@ export interface AdminUser {
   role: string;
   /** readonly | admin | finance */
   permission: string;
+  /** Server-authoritative capabilities for the signed-in user. */
+  capabilities?: string[];
+  /** Whether TodoPay financial data can be safely scoped for this user. */
+  financialScopeReady?: boolean;
   isActive: boolean;
   useOtp: boolean;
   /** @nullable */
@@ -61,6 +65,7 @@ export interface AdminUserUpdate {
 
 export interface ResetPasswordInput {
   newPassword: string;
+  currentPassword?: string;
 }
 
 export interface UserPermissionUpdate {
@@ -353,8 +358,20 @@ export interface FeeListItem {
   parentDepositFee?: number | null;
   /** @nullable */
   parentWithdrawalFee?: number | null;
-  /** @nullable */
+  /**
+   * 상위 계정의 누적 수수료 기준율 (%)
+   * @nullable
+   */
   parentUsageFeeRate?: number | null;
+  /**
+   * 설정된 직속 하위 계정 중 가장 낮은 누적 수수료 기준율 (%)
+   * @nullable
+   */
+  minChildUsageFeeRate?: number | null;
+  /** Sum of all organization allocations above the store. */
+  allocatedUsageFeeRate?: number | null;
+  /** Store residual share after all organization allocations. */
+  storeShare?: number | null;
 }
 
 export interface FeeConfig {
@@ -435,8 +452,10 @@ export interface NoticeUpdate {
 export interface OtpSettings {
   useOtpForDeposit: boolean;
   useOtpForWithdrawal: boolean;
+  enrolled: boolean;
   /** @nullable */
-  otpSecret?: string | null;
+  verifiedAt?: string | null;
+  enrollmentPending?: boolean;
 }
 
 export interface OtpSettingsUpdate {

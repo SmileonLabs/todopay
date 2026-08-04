@@ -13,11 +13,7 @@
 - Required env: `DATABASE_URL` — Postgres connection string
 
 ## Default credentials
-- superadmin / admin1234
-- hq01 / test1234
-- dist01 / test1234
-- agency01 / test1234
-- store01 / test1234
+- 계정과 비밀번호는 환경별 보안 초기화 절차로 설정합니다.
 
 ## Stack
 

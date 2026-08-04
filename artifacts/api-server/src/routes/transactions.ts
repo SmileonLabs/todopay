@@ -3,7 +3,10 @@ import { db, transactionsTable, membersTable, adminUsersTable, feeConfigsTable, 
 import { eq, ilike, and, or, sql, gte, lte, inArray } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
+import { requireLegacyFinancialWrites } from "../lib/integration-gate.js";
 import { getAccessibleStoreIds, getStoresUnderOrg } from "../lib/query-utils.js";
+import { calculateDirectFeeShares, feeAmountAtRate } from "../lib/fee-hierarchy.js";
+import { enforceCapability } from "../lib/access-control.js";
 
 const router = Router();
 
@@ -74,6 +77,7 @@ async function getStoreHierarchiesBatch(storeIds: number[]): Promise<Map<number,
 router.get("/transactions", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.read", res)) return;
 
   const parsed = ListTransactionsQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
@@ -184,8 +188,10 @@ router.get("/transactions", async (req, res) => {
 });
 
 router.post("/transactions/:id/confirm", async (req, res) => {
+  if (!requireLegacyFinancialWrites(res)) return;
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.manage", res)) return;
 
   const txId = parseInt(req.params.id, 10);
 
@@ -218,52 +224,104 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     }
   }
 
-  const usageFeeAmount = Math.round(originalAmount * usageFeeRate / 100);
+  const usageFeeAmount = feeAmountAtRate(originalAmount, usageFeeRate);
   const totalFeeAmount = depositFixedFee + usageFeeAmount;
   const netToStore = originalAmount - totalFeeAmount;
 
   const feeDistributions: Array<{ userId: number; amount: number; description: string }> = [];
+  const organizationRates: Array<{ userId: number; rate: number }> = [];
+  let invalidFeeAllocation: string | null = null;
   if (usageFeeAmount > 0 && storeId) {
-    let prevChildRate = usageFeeRate;
     let currentUserId = storeId;
+    const visited = new Set<number>();
 
     while (true) {
+      if (visited.has(currentUserId)) {
+        invalidFeeAllocation = "수수료 조직 구조에 순환 참조가 있습니다";
+        break;
+      }
+      visited.add(currentUserId);
+
       const [currentUser] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, currentUserId));
-      if (!currentUser || !currentUser.parentId) {
-        if (prevChildRate > 0) {
-          const topAmount = Math.round(originalAmount * prevChildRate / 100);
-          if (topAmount > 0) {
-            feeDistributions.push({
-              userId: currentUserId,
-              amount: topAmount,
-              description: `이용수수료 수당 [${currentUserId}] - ${txCheck.trackingNumber} (${prevChildRate}%)`,
-            });
-          }
-        }
+      if (!currentUser) {
+        invalidFeeAllocation = `수수료 조직 계정(${currentUserId})을 찾을 수 없습니다`;
         break;
       }
 
-      const [parentFeeConfig] = await db.select().from(feeConfigsTable)
-        .where(eq(feeConfigsTable.userId, currentUser.parentId));
-      const parentRate = parentFeeConfig ? Number(parentFeeConfig.usageFeeRate) : 0;
-      const levelMarginRate = prevChildRate - parentRate;
-
-      if (levelMarginRate > 0) {
-        const levelAmount = Math.round(originalAmount * levelMarginRate / 100);
-        if (levelAmount > 0) {
-          feeDistributions.push({
-            userId: currentUser.parentId,
-            amount: levelAmount,
-            description: `이용수수료 수당 [${currentUser.parentId}] - ${txCheck.trackingNumber} (마진 ${levelMarginRate}%)`,
-          });
-        }
+      if (!currentUser.parentId) {
+        break;
       }
 
-      prevChildRate = parentRate;
-      currentUserId = currentUser.parentId;
-      if (prevChildRate <= 0) break;
+      const [parentUser] = await db.select().from(adminUsersTable)
+        .where(eq(adminUsersTable.id, currentUser.parentId));
+      if (!parentUser) {
+        invalidFeeAllocation = `상위 조직 계정(${currentUser.parentId})을 찾을 수 없습니다`;
+        break;
+      }
+
+      if (parentUser.role === "superadmin") break;
+
+      const [parentFeeConfig] = await db.select().from(feeConfigsTable)
+        .where(eq(feeConfigsTable.userId, parentUser.id));
+      const parentRate = parentFeeConfig ? Number(parentFeeConfig.usageFeeRate) : 0;
+      if (!Number.isFinite(parentRate) || parentRate < 0 || parentRate > 100) {
+        invalidFeeAllocation =
+          `조직 수수료율이 올바르지 않습니다: ${parentUser.name} ${parentRate}%`;
+        break;
+      }
+
+      organizationRates.push({ userId: parentUser.id, rate: parentRate });
+      currentUserId = parentUser.id;
+    }
+
+    if (!invalidFeeAllocation) {
+      try {
+        for (const share of calculateDirectFeeShares(
+          originalAmount,
+          usageFeeRate,
+          storeId,
+          organizationRates,
+        )) {
+          if (share.amount <= 0) continue;
+          feeDistributions.push({
+            userId: share.userId,
+            amount: share.amount,
+            description: `이용수수료 수당 [${share.userId}] - ${txCheck.trackingNumber} (배분 ${share.rate}%)`,
+          });
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === "FEE_ALLOCATION_EXCEEDS_TOTAL") {
+          const allocatedRate = organizationRates.reduce((sum, item) => sum + item.rate, 0);
+          invalidFeeAllocation =
+            `조직 배분 합계(${allocatedRate}%)가 매장 이용수수료율(${usageFeeRate}%)을 초과합니다`;
+        } else {
+          throw error;
+        }
+      }
     }
   }
+
+  if (invalidFeeAllocation) {
+    res.status(409).json({
+      error: `${invalidFeeAllocation}. 수수료 설정을 수정한 후 다시 처리해 주세요`,
+    });
+    return;
+  }
+
+  const distributedUsageFeeAmount = feeDistributions.reduce((sum, item) => sum + item.amount, 0);
+  if (distributedUsageFeeAmount !== usageFeeAmount) {
+    res.status(409).json({
+      error: "수수료 배분 합계가 매장 이용 수수료와 일치하지 않아 거래를 중단했습니다",
+    });
+    return;
+  }
+
+  const storeUsageFeeShareAmount = storeId
+    ? feeDistributions
+        .filter(item => item.userId === storeId)
+        .reduce((sum, item) => sum + item.amount, 0)
+    : 0;
+  const storeCreditAmount = netToStore + storeUsageFeeShareAmount;
 
   let result: { id: number; status: string } | null = null;
 
@@ -279,12 +337,12 @@ router.post("/transactions/:id/confirm", async (req, res) => {
 
     if (!updated) throw new Error("ALREADY_PROCESSED");
 
-    if (storeId && netToStore > 0) {
+    if (storeId && storeCreditAmount > 0) {
       await dbtx.execute(sql`
         INSERT INTO store_balances (store_id, balance, updated_at)
-        VALUES (${storeId}, ${netToStore.toFixed(2)}, NOW())
+        VALUES (${storeId}, ${storeCreditAmount.toFixed(2)}, NOW())
         ON CONFLICT (store_id) DO UPDATE
-          SET balance    = store_balances.balance + ${netToStore.toFixed(2)},
+          SET balance    = store_balances.balance + ${storeCreditAmount.toFixed(2)},
               updated_at = NOW()
       `);
     }
@@ -306,7 +364,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
         category: "deposit",
         amount: originalAmount.toFixed(2),
         balance: "0",
-        description: `구매 확인 - ${txCheck.trackingNumber} (입금수수료 ${depositFixedFee.toLocaleString("ko-KR")}원, 이용수수료 ${usageFeeAmount.toLocaleString("ko-KR")}원)`,
+        description: `구매 확인 - ${txCheck.trackingNumber} (입금수수료 ${depositFixedFee.toLocaleString("ko-KR")}원, 이용수수료 ${usageFeeAmount.toLocaleString("ko-KR")}원, 매장 몫 ${storeUsageFeeShareAmount.toLocaleString("ko-KR")}원)`,
         userId: storeId,
       });
     }

@@ -14,6 +14,10 @@ export interface AdminUser {
   role: string;
   /** readonly | admin | finance */
   permission: string;
+  /** Server-authoritative capabilities for the signed-in user. */
+  capabilities?: string[];
+  /** Whether TodoPay financial data can be safely scoped for this user. */
+  financialScopeReady?: boolean;
   isActive: boolean;
   useOtp: boolean;
   /** @nullable */

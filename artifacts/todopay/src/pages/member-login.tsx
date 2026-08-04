@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import logo from "@/assets/logo.svg";
+import logo from "@/assets/todopay-logo-white.png";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,7 +115,7 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-4">
         <div className="flex items-center justify-between">
-          <img src={logo} alt="TodoPay" className="h-16 w-auto brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-auto w-44" />
           <button onClick={onLogout} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
             <LogOut className="h-3.5 w-3.5" />로그아웃
           </button>
@@ -356,6 +356,21 @@ type AuthMode = "login" | "register";
 
 interface RegisterResponse { id: number; loginId: string; name: string; error?: string; }
 
+async function readRegisterResponse(res: Response): Promise<RegisterResponse> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return await res.json() as RegisterResponse;
+  }
+  return {
+    id: 0,
+    loginId: "",
+    name: "",
+    error: res.ok
+      ? "서버 응답을 확인할 수 없습니다."
+      : `가입 요청 처리 중 오류가 발생했습니다. (${res.status})`,
+  };
+}
+
 export default function MemberLogin() {
   const [mode, setMode] = useState<AuthMode>("login");
   const [session, setSession] = useState<MemberSession | null>(null);
@@ -374,6 +389,10 @@ export default function MemberLogin() {
   const [regError, setRegError] = useState("");
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccess, setRegSuccess] = useState(false);
+
+  useEffect(() => {
+    if (!token) window.location.replace(api("member/login"));
+  }, [token]);
 
   const loadSession = useCallback(async (t: string) => {
     try {
@@ -436,6 +455,12 @@ export default function MemberLogin() {
     if (!regData.loginId.trim() || !regData.password.trim() || !regData.name.trim() || !regData.phone.trim()) {
       setRegError("필수 항목을 모두 입력해주세요"); return;
     }
+    if (!/^[A-Za-z0-9_-]{4,30}$/.test(regData.loginId.trim())) {
+      setRegError("아이디는 영문, 숫자, 밑줄, 하이픈으로 4~30자까지 입력해주세요."); return;
+    }
+    if (regData.password.length < 8) {
+      setRegError("비밀번호는 8자 이상 입력해주세요."); return;
+    }
     if (!storeValid) { setRegError("유효한 매장 코드를 입력해주세요"); return; }
     setRegError("");
     setRegLoading(true);
@@ -445,7 +470,7 @@ export default function MemberLogin() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...regData, phone: regData.phone.replace(/\D/g, ""), birthdate: regData.birthdate || null }),
       });
-      const data = await res.json() as RegisterResponse;
+      const data = await readRegisterResponse(res);
       if (!res.ok) { setRegError(data.error ?? "가입에 실패했습니다"); return; }
       setRegSuccess(true);
     } catch {
@@ -459,6 +484,7 @@ export default function MemberLogin() {
     localStorage.removeItem(MEMBER_TOKEN_KEY);
     setToken("");
     setSession(null);
+    window.location.assign(api("member/login"));
   };
 
   if (session) {
@@ -476,7 +502,7 @@ export default function MemberLogin() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-5">
         <div className="text-center space-y-2">
-          <img src={logo} alt="TodoPay" className="h-20 w-auto mx-auto brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="mx-auto h-auto w-56" />
           <p className="text-sm text-muted-foreground">가상계좌 구매 포털</p>
         </div>
 
@@ -575,7 +601,20 @@ export default function MemberLogin() {
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">생년월일</Label>
-                  <Input value={regData.birthdate} onChange={(e) => setRegData(p => ({ ...p, birthdate: e.target.value }))} placeholder="YYYY-MM-DD" />
+                  <Input
+                    value={regData.birthdate}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+                      const formatted = digits.length <= 4
+                        ? digits
+                        : digits.length <= 6
+                          ? `${digits.slice(0, 4)}-${digits.slice(4)}`
+                          : `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6)}`;
+                      setRegData(p => ({ ...p, birthdate: formatted }));
+                    }}
+                    placeholder="YYYY-MM-DD"
+                    maxLength={10}
+                  />
                 </div>
                 {regError && (
                   <div className="rounded-md bg-red-500/10 border border-red-500/20 px-3 py-2 flex items-center gap-2">

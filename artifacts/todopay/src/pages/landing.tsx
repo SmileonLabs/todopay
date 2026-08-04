@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import logo from "@/assets/logo.svg";
+import logo from "@/assets/todopay-logo-white.png";
 import {
   ShieldCheck, Landmark, TrendingUp, Users, ArrowRight,
   Building2, UserCircle2, CheckCircle, Layers, Lock,
@@ -182,7 +182,7 @@ export default function Landing() {
       {/* ══ 헤더 ══════════════════════════════════════════════ */}
       <header className="sticky top-0 z-50 border-b border-white/5 bg-[#060d1a]/85 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <img src={logo} alt="TodoPay" className="h-24 w-auto brightness-0 invert" />
+          <img src={logo} alt="TodoPay" className="h-auto w-56" />
           <nav className="flex items-center gap-2">
             <button
               onClick={() => setLocation(nav("/member/login"))}
@@ -229,7 +229,7 @@ export default function Landing() {
 
               {/* 로고 대형 */}
               <div className="mb-6">
-                <img src={logo} alt="TodoPay" className="h-28 w-auto brightness-0 invert mb-4" />
+                <img src={logo} alt="TodoPay" className="mb-4 h-auto w-64" />
                 <h1 className="text-4xl md:text-5xl font-bold leading-tight">
                   소상공인을 위한<br />
                   <span className="bg-gradient-to-r from-[#3b82f6] to-[#60a5fa] bg-clip-text text-transparent">
@@ -490,7 +490,7 @@ export default function Landing() {
           <div className="absolute bottom-0 right-0 w-64 h-32 bg-[#0369a1]/10 blur-2xl rounded-full" />
 
           <div className="relative">
-            <img src={logo} alt="TodoPay" className="h-20 w-auto brightness-0 invert mx-auto mb-8 opacity-90" />
+            <img src={logo} alt="TodoPay" className="mx-auto mb-8 h-auto w-56 opacity-90" />
             <h2 className="text-3xl md:text-4xl font-bold mb-4">지금 바로 시작하세요</h2>
             <p className="text-slate-300 text-base mb-12 max-w-lg mx-auto leading-relaxed">
               회원이라면 가상계좌로 간편하게 구매를 진행하고,
@@ -522,7 +522,7 @@ export default function Landing() {
       <footer className="border-t border-white/5 py-10">
         <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-4">
-            <img src={logo} alt="TodoPay" className="h-10 w-auto brightness-0 invert opacity-40" />
+            <img src={logo} alt="TodoPay" className="h-auto w-36 opacity-40" />
             <div className="h-5 w-px bg-white/10" />
             <p className="text-xs text-slate-600">소상공인을 위한 안전한 거래 플랫폼</p>
           </div>

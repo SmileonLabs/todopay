@@ -1,0 +1,30 @@
+{
+  "family": "sellink-migration",
+  "taskRoleArn": "arn:aws:iam::746491202681:role/sellink-prod-service-TaskRole-THKvM4K8XglS",
+  "executionRoleArn": "arn:aws:iam::746491202681:role/sellink-prod-service-ExecutionRole-LlfUPmUMZqtg",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "containerDefinitions": [
+    {
+      "name": "migrate",
+      "image": "746491202681.dkr.ecr.ap-northeast-2.amazonaws.com/sellink-api:20260728-audit-migration-v1",
+      "essential": true,
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-2:746491202681:secret:sellink/runtime/database-url-nMMzfd"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/sellink/api",
+          "awslogs-region": "ap-northeast-2",
+          "awslogs-stream-prefix": "migration"
+        }
+      }
+    }
+  ]
+}

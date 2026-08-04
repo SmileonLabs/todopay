@@ -315,9 +315,7 @@ doc.font('bold').fontSize(8).fillColor('#64748b').text('# 관리자 로그인 �
 doc.font('reg').fontSize(8.5).fillColor(BLUE).text('URL          https://[도메인]/login', ML + 14, y + 22, { width: CW - 28 });
 doc.save().moveTo(ML + 14, y + 36).lineTo(ML + CW - 14, y + 36).strokeColor('#1e293b').lineWidth(0.4).stroke().restore();
 doc.font('bold').fontSize(8).fillColor('#64748b').text('# 테스트 계정', ML + 14, y + 42);
-doc.font('reg').fontSize(8.5).fillColor(BLUE).text('슈퍼어드민   superadmin / admin1234', ML + 14, y + 54, { width: CW - 28 });
-doc.font('reg').fontSize(8.5).fillColor(BLUE).text('본사         hq01 / test1234', ML + 14, y + 66, { width: CW - 28 });
-doc.font('reg').fontSize(8.5).fillColor(BLUE).text('총판         dist01 / test1234          대리점  agency01 / test1234          매장  store01 / test1234', ML + 14, y + 78, { width: CW - 28 });
+doc.font('reg').fontSize(8.5).fillColor(BLUE).text('계정과 비밀번호는 환경별 보안 초기화 절차로 설정합니다.', ML + 14, y + 54, { width: CW - 28 });
 y += 112;
 warnBox('⚠️ 운영 환경에서는 반드시 초기 비밀번호를 변경하세요. 기본 계정 정보 노출 시 보안 사고로 이어질 수 있습니다.');
 

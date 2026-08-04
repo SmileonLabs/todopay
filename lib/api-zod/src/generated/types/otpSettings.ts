@@ -9,6 +9,8 @@
 export interface OtpSettings {
   useOtpForDeposit: boolean;
   useOtpForWithdrawal: boolean;
+  enrolled: boolean;
   /** @nullable */
-  otpSecret?: string | null;
+  verifiedAt?: string | null;
+  enrollmentPending?: boolean;
 }

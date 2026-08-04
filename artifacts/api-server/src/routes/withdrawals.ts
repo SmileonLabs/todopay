@@ -4,6 +4,10 @@ import { eq, ilike, and, or, sql, gte, lte, inArray } from "drizzle-orm";
 import { ListWithdrawalsQueryParams, CreateWithdrawalBody, RejectWithdrawalBody } from "@workspace/api-zod";
 import crypto from "crypto";
 import { requireAdmin } from "../lib/auth.js";
+import { getAccessibleStoreIds, getMemberIdsForStores } from "../lib/query-utils.js";
+import { requireLegacyFinancialWrites } from "../lib/integration-gate.js";
+import { enforceCapability } from "../lib/access-control.js";
+import { enforceTotp } from "../lib/otp-protection.js";
 
 const router = Router();
 
@@ -17,6 +21,28 @@ function getTomorrow10amKST(): Date {
 }
 
 type WithdrawalRow = typeof withdrawalsTable.$inferSelect;
+type AdminUser = typeof adminUsersTable.$inferSelect;
+
+async function getWithdrawalScope(caller: AdminUser) {
+  const storeIds = await getAccessibleStoreIds(caller);
+  if (storeIds === null) return undefined;
+  if (storeIds.length === 0) return sql`false`;
+  const memberIds = await getMemberIdsForStores(storeIds);
+  return memberIds && memberIds.length > 0
+    ? or(inArray(withdrawalsTable.storeId, storeIds), inArray(withdrawalsTable.memberId, memberIds))
+    : inArray(withdrawalsTable.storeId, storeIds);
+}
+
+async function canAccessWithdrawal(caller: AdminUser, withdrawal: WithdrawalRow): Promise<boolean> {
+  const storeIds = await getAccessibleStoreIds(caller);
+  if (storeIds === null) return true;
+  if (withdrawal.storeId) return storeIds.includes(withdrawal.storeId);
+  if (!withdrawal.memberId) return false;
+  const [member] = await db.select({ storeId: membersTable.storeId })
+    .from(membersTable)
+    .where(eq(membersTable.id, withdrawal.memberId));
+  return Boolean(member?.storeId && storeIds.includes(member.storeId));
+}
 
 function formatWithdrawalRow(
   w: WithdrawalRow,
@@ -111,21 +137,28 @@ async function formatWithdrawalBatch(withdrawals: WithdrawalRow[]) {
 router.get("/withdrawals/summary", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.read", res)) return;
+  const scope = await getWithdrawalScope(caller);
 
   const [pending] = await db.select({
     count: sql<number>`count(*)`,
     amount: sql<number>`coalesce(sum(total_amount), 0)`,
-  }).from(withdrawalsTable).where(eq(withdrawalsTable.approvalStatus, "pending"));
+  }).from(withdrawalsTable).where(scope
+    ? and(scope, eq(withdrawalsTable.approvalStatus, "pending"))
+    : eq(withdrawalsTable.approvalStatus, "pending"));
   const [approved] = await db.select({
     count: sql<number>`count(*)`,
     amount: sql<number>`coalesce(sum(total_amount), 0)`,
-  }).from(withdrawalsTable).where(eq(withdrawalsTable.approvalStatus, "approved"));
+  }).from(withdrawalsTable).where(scope
+    ? and(scope, eq(withdrawalsTable.approvalStatus, "approved"))
+    : eq(withdrawalsTable.approvalStatus, "approved"));
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [todayRow] = await db.select({
     amount: sql<number>`coalesce(sum(amount), 0)`,
   }).from(withdrawalsTable).where(and(
+    scope,
     eq(withdrawalsTable.withdrawalStatus, "paid"),
-    gte(withdrawalsTable.createdAt, today)
+    gte(withdrawalsTable.createdAt, today),
   ));
   res.json({
     pendingCount: Number(pending.count),
@@ -139,6 +172,7 @@ router.get("/withdrawals/summary", async (req, res) => {
 router.get("/withdrawals", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.read", res)) return;
 
   const parsed = ListWithdrawalsQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
@@ -147,6 +181,8 @@ router.get("/withdrawals", async (req, res) => {
   const offset = (page - 1) * limit;
 
   const conditions = [];
+  const scope = await getWithdrawalScope(caller);
+  if (scope) conditions.push(scope);
   if (params.approvalStatus) conditions.push(eq(withdrawalsTable.approvalStatus, params.approvalStatus));
   if (params.withdrawalStatus) conditions.push(eq(withdrawalsTable.withdrawalStatus, params.withdrawalStatus));
   if (params.startDate) conditions.push(gte(withdrawalsTable.createdAt, new Date(params.startDate)));
@@ -181,8 +217,14 @@ router.get("/withdrawals", async (req, res) => {
 router.get("/store/:id/balance", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.read", res)) return;
 
   const storeId = parseInt(req.params.id, 10);
+  const accessibleStoreIds = await getAccessibleStoreIds(caller);
+  if (Number.isInteger(storeId) && accessibleStoreIds !== null && !accessibleStoreIds.includes(storeId)) {
+    res.status(403).json({ error: "권한이 없습니다." });
+    return;
+  }
   if (isNaN(storeId)) { res.status(400).json({ error: "잘못된 매장 ID" }); return; }
 
   const [store] = await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, storeId));
@@ -193,8 +235,10 @@ router.get("/store/:id/balance", async (req, res) => {
 });
 
 router.post("/withdrawals", async (req, res) => {
+  if (!requireLegacyFinancialWrites(res)) return;
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "withdrawals.request", res)) return;
 
   if (caller.role !== "store") {
     res.status(403).json({ error: "출금 신청은 매장 계정만 가능합니다" }); return;
@@ -273,13 +317,24 @@ router.post("/withdrawals", async (req, res) => {
 });
 
 router.post("/withdrawals/:id/approve", async (req, res) => {
+  if (!requireLegacyFinancialWrites(res)) return;
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "withdrawals.approve", res)) return;
+  if (!(await enforceTotp(caller, req, res, "withdrawal"))) return;
+  if (caller.role === "store") {
+    res.status(403).json({ error: "출금 승인 권한이 없습니다." });
+    return;
+  }
 
   const id = parseInt(req.params.id, 10);
 
   const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
   if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+  if (!(await canAccessWithdrawal(caller, existing))) {
+    res.status(403).json({ error: "권한이 없습니다." });
+    return;
+  }
 
   if (existing.availableAt && new Date() < existing.availableAt) {
     const kstTime = new Date(existing.availableAt.getTime() + 9 * 60 * 60 * 1000);
@@ -320,12 +375,25 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
 });
 
 router.post("/withdrawals/:id/reject", async (req, res) => {
+  if (!requireLegacyFinancialWrites(res)) return;
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "withdrawals.approve", res)) return;
+  if (!(await enforceTotp(caller, req, res, "withdrawal"))) return;
+  if (caller.role === "store") {
+    res.status(403).json({ error: "출금 반려 권한이 없습니다." });
+    return;
+  }
 
   const id = parseInt(req.params.id, 10);
   const parsed = RejectWithdrawalBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+  const [existing] = await db.select().from(withdrawalsTable).where(eq(withdrawalsTable.id, id));
+  if (!existing) { res.status(404).json({ error: "Not found" }); return; }
+  if (!(await canAccessWithdrawal(caller, existing))) {
+    res.status(403).json({ error: "권한이 없습니다." });
+    return;
+  }
 
   let rejected: WithdrawalRow | null = null;
 

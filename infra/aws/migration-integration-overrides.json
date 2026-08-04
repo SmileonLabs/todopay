@@ -1,0 +1,8 @@
+{
+  "containerOverrides": [
+    {
+      "name": "migrate",
+      "command": ["pnpm", "--filter", "@workspace/db", "run", "migrate-integration"]
+    }
+  ]
+}

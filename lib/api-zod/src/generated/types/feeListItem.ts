@@ -38,6 +38,18 @@ export interface FeeListItem {
   parentDepositFee?: number | null;
   /** @nullable */
   parentWithdrawalFee?: number | null;
-  /** @nullable */
+  /**
+   * 상위 계정의 누적 수수료 기준율 (%)
+   * @nullable
+   */
   parentUsageFeeRate?: number | null;
+  /**
+   * 설정된 직속 하위 계정 중 가장 낮은 누적 수수료 기준율 (%)
+   * @nullable
+   */
+  minChildUsageFeeRate?: number | null;
+  /** Sum of all organization allocations above the store. */
+  allocatedUsageFeeRate?: number | null;
+  /** Store residual share after all organization allocations. */
+  storeShare?: number | null;
 }

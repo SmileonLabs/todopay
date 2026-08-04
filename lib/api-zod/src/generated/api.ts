@@ -31,6 +31,8 @@ export const LoginResponse = zod.object({
       .string()
       .describe("superadmin | hq | distributor | agency | store"),
     permission: zod.string().describe("readonly | admin | finance"),
+    capabilities: zod.array(zod.string()).optional(),
+    financialScopeReady: zod.boolean().optional(),
     isActive: zod.boolean(),
     useOtp: zod.boolean(),
     parentId: zod.number().nullish(),
@@ -49,6 +51,8 @@ export const GetMeResponse = zod.object({
   name: zod.string(),
   role: zod.string().describe("superadmin | hq | distributor | agency | store"),
   permission: zod.string().describe("readonly | admin | finance"),
+  capabilities: zod.array(zod.string()).optional(),
+  financialScopeReady: zod.boolean().optional(),
   isActive: zod.boolean(),
   useOtp: zod.boolean(),
   parentId: zod.number().nullish(),
@@ -163,6 +167,7 @@ export const ResetUserPasswordParams = zod.object({
 
 export const ResetUserPasswordBody = zod.object({
   newPassword: zod.string(),
+  currentPassword: zod.string().optional(),
 });
 
 /**
@@ -687,7 +692,22 @@ export const ListFeesResponseItem = zod.object({
   usageFeeRate: zod.number().nullish().describe("이용 수수료율 (%)"),
   parentDepositFee: zod.number().nullish(),
   parentWithdrawalFee: zod.number().nullish(),
-  parentUsageFeeRate: zod.number().nullish(),
+  parentUsageFeeRate: zod
+    .number()
+    .nullish()
+    .describe("상위 계정의 누적 수수료 기준율 (%)"),
+  minChildUsageFeeRate: zod
+    .number()
+    .nullish()
+    .describe("설정된 직속 하위 계정 중 가장 낮은 누적 수수료 기준율 (%)"),
+  allocatedUsageFeeRate: zod
+    .number()
+    .nullish()
+    .describe("매장 상위 조직 배분 합계 (%)"),
+  storeShare: zod
+    .number()
+    .nullish()
+    .describe("상위 조직 배분 후 매장 잔여 몫 (%)"),
 });
 export const ListFeesResponse = zod.array(ListFeesResponseItem);
 
@@ -842,7 +862,9 @@ export const DeleteNoticeParams = zod.object({
 export const GetOtpSettingsResponse = zod.object({
   useOtpForDeposit: zod.boolean(),
   useOtpForWithdrawal: zod.boolean(),
-  otpSecret: zod.string().nullish(),
+  enrolled: zod.boolean(),
+  verifiedAt: zod.string().nullish(),
+  enrollmentPending: zod.boolean().optional(),
 });
 
 /**
@@ -856,5 +878,7 @@ export const UpdateOtpSettingsBody = zod.object({
 export const UpdateOtpSettingsResponse = zod.object({
   useOtpForDeposit: zod.boolean(),
   useOtpForWithdrawal: zod.boolean(),
-  otpSecret: zod.string().nullish(),
+  enrolled: zod.boolean(),
+  verifiedAt: zod.string().nullish(),
+  enrollmentPending: zod.boolean().optional(),
 });

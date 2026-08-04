@@ -4,12 +4,14 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import { ListVirtualAccountsQueryParams } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
 import { getAccessibleStoreIds } from "../lib/query-utils.js";
+import { enforceCapability } from "../lib/access-control.js";
 
 const router = Router();
 
 router.get("/virtual-accounts", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.read", res)) return;
 
   const parsed = ListVirtualAccountsQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
@@ -71,6 +73,7 @@ router.get("/virtual-accounts", async (req, res) => {
 router.get("/virtual-accounts/:id", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.read", res)) return;
 
   const id = parseInt(req.params.id, 10);
   const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.id, id));

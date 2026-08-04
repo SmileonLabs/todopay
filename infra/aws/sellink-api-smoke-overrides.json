@@ -1,0 +1,12 @@
+{
+  "containerOverrides": [
+    {
+      "name": "sellink-api",
+      "command": [
+        "node",
+        "-e",
+        "Promise.all(['/integration','/overview','/fees','/balance','/members?limit=1','/virtual-accounts?limit=1','/transactions?limit=1','/withdrawals?limit=1','/webhook-events?limit=1'].map(async path => { const r = await fetch(process.env.TODOPAY_API_BASE_URL + '/api/external/v1' + path, { headers: { 'X-TodoPay-Api-Key': process.env.TODOPAY_API_KEY } }); return { path, status: r.status, ok: r.ok }; })).then(results => { console.log(JSON.stringify(results)); process.exit(results.every(x => x.ok) ? 0 : 1); }).catch(e => { console.error(e.message); process.exit(1); })"
+      ]
+    }
+  ]
+}

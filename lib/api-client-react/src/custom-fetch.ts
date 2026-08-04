@@ -7,6 +7,7 @@ export type ErrorType<T = unknown> = ApiError<T>;
 export type BodyType<T> = T;
 
 export type AuthTokenGetter = () => Promise<string | null> | string | null;
+export type UnauthorizedHandler = (error: ApiError<unknown>) => void;
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
@@ -17,6 +18,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _unauthorizedHandler: UnauthorizedHandler | null = null;
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -42,6 +44,15 @@ export function setBaseUrl(url: string | null): void {
  */
 export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
   _authTokenGetter = getter;
+}
+
+/**
+ * Register a single application-wide 401 handler. Web applications use this
+ * to discard stale credentials immediately instead of leaving cached screens
+ * interactive after the server has rejected the session.
+ */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  _unauthorizedHandler = handler;
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {
@@ -360,11 +371,32 @@ export async function customFetch<T = unknown>(
 
   const requestInfo = { method, url: resolveUrl(input) };
 
-  const response = await fetch(input, { ...init, method, headers });
+  let response = await fetch(input, { ...init, method, headers });
 
   if (!response.ok) {
-    const errorData = await parseErrorBody(response, method);
-    throw new ApiError(response, errorData, requestInfo);
+    let errorData = await parseErrorBody(response, method);
+    const errorCode = getStringField(errorData, "code");
+    if (
+      response.status === 403
+      && errorCode === "TOTP_REQUIRED"
+      && !headers.has("x-totp-code")
+      && typeof window !== "undefined"
+    ) {
+      const code = window.prompt("인증 앱의 6자리 OTP 코드를 입력해주세요.")?.trim() ?? "";
+      if (/^\d{6}$/.test(code)) {
+        headers.set("x-totp-code", code);
+        response = await fetch(input, { ...init, method, headers });
+        if (response.ok) {
+          return (await parseSuccessBody(response, responseType, requestInfo)) as T;
+        }
+        errorData = await parseErrorBody(response, method);
+      }
+    }
+    const error = new ApiError(response, errorData, requestInfo);
+    if (response.status === 401) {
+      _unauthorizedHandler?.(error);
+    }
+    throw error;
   }
 
   return (await parseSuccessBody(response, responseType, requestInfo)) as T;

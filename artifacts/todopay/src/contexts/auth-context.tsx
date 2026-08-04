@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { setAuthTokenGetter } from "@workspace/api-client-react";
+import {
+  setAuthTokenGetter,
+  setUnauthorizedHandler,
+} from "@workspace/api-client-react";
 import type { AdminUser } from "@workspace/api-client-react";
 
 const TOKEN_KEY = "todopay_token";
@@ -8,8 +11,10 @@ interface AuthContextValue {
   user: AdminUser | null;
   token: string | null;
   isLoading: boolean;
+  sessionMessage: string | null;
   signIn: (token: string, user: AdminUser) => void;
   signOut: () => void;
+  clearSessionMessage: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -20,9 +25,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
   const [user, setUser] = useState<AdminUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setAuthTokenGetter(() => localStorage.getItem(TOKEN_KEY));
+    setUnauthorizedHandler(() => {
+      localStorage.removeItem(TOKEN_KEY);
+      setToken(null);
+      setUser(null);
+      setSessionMessage("로그인 세션이 만료되었거나 더 이상 유효하지 않습니다. 다시 로그인해 주세요.");
+    });
+    return () => {
+      setAuthTokenGetter(null);
+      setUnauthorizedHandler(null);
+    };
   }, []);
 
   useEffect(() => {
@@ -45,6 +61,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.removeItem(TOKEN_KEY);
         setToken(null);
         setUser(null);
+        setSessionMessage("로그인 세션이 만료되었거나 더 이상 유효하지 않습니다. 다시 로그인해 주세요.");
       })
       .finally(() => setIsLoading(false));
   }, [token]);
@@ -53,16 +70,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(TOKEN_KEY, newToken);
     setToken(newToken);
     setUser(newUser);
+    setSessionMessage(null);
   };
 
   const signOut = () => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
     setUser(null);
+    setSessionMessage(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, signIn, signOut }}>
+    <AuthContext.Provider value={{
+      user,
+      token,
+      isLoading,
+      sessionMessage,
+      signIn,
+      signOut,
+      clearSessionMessage: () => setSessionMessage(null),
+    }}>
       {children}
     </AuthContext.Provider>
   );

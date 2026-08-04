@@ -41,6 +41,7 @@ export default function Profile() {
 
   const [name, setName] = useState(user?.name ?? "");
   const [nameEditing, setNameEditing] = useState(false);
+  const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
 
@@ -62,6 +63,10 @@ export default function Profile() {
   };
 
   const handleChangePassword = () => {
+    if (!currentPw) {
+      toast({ title: "현재 비밀번호를 입력해주세요", variant: "destructive" });
+      return;
+    }
     if (!newPw.trim()) {
       toast({ title: "새 비밀번호를 입력해주세요", variant: "destructive" });
       return;
@@ -70,13 +75,14 @@ export default function Profile() {
       toast({ title: "새 비밀번호가 일치하지 않습니다", variant: "destructive" });
       return;
     }
-    if (newPw.length < 6) {
-      toast({ title: "비밀번호는 6자 이상이어야 합니다", variant: "destructive" });
+    if (newPw.length < 8) {
+      toast({ title: "비밀번호는 8자 이상이어야 합니다", variant: "destructive" });
       return;
     }
-    resetPw.mutate({ id: user.id, data: { newPassword: newPw } }, {
+    resetPw.mutate({ id: user.id, data: { currentPassword: currentPw, newPassword: newPw } }, {
       onSuccess: () => {
         toast({ title: "비밀번호가 변경됐습니다" });
+        setCurrentPw("");
         setNewPw("");
         setConfirmPw("");
       },
@@ -187,12 +193,23 @@ export default function Profile() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">현재 비밀번호</Label>
+            <Input
+              type="password"
+              value={currentPw}
+              onChange={(e) => setCurrentPw(e.target.value)}
+              autoComplete="current-password"
+              placeholder="현재 비밀번호"
+            />
+          </div>
+          <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">새 비밀번호</Label>
             <Input
               type="password"
               value={newPw}
               onChange={(e) => setNewPw(e.target.value)}
-              placeholder="새 비밀번호 (6자 이상)"
+              autoComplete="new-password"
+              placeholder="새 비밀번호 (8자 이상)"
             />
           </div>
           <div className="space-y-1.5">
@@ -211,7 +228,7 @@ export default function Profile() {
           <div className="pt-1">
             <Button
               onClick={handleChangePassword}
-              disabled={!newPw || !confirmPw || resetPw.isPending}
+              disabled={!currentPw || !newPw || !confirmPw || resetPw.isPending}
               className="bg-primary text-black hover:bg-primary/90"
             >
               {resetPw.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

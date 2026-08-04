@@ -8,4 +8,5 @@
 
 export interface ResetPasswordInput {
   newPassword: string;
+  currentPassword?: string;
 }

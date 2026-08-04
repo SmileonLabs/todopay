@@ -6,6 +6,7 @@ import {
   useDeleteUser,
   useResetUserPassword,
   useUpdateUserPermission,
+  customFetch,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -22,9 +23,10 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   Loader2, Plus, KeyRound, Trash2, ChevronDown, ChevronRight as ChevronRightIcon,
-  Building2, Network, Store, Shield, Users as UsersIcon,
+  Building2, Network, Store, Shield, Users as UsersIcon, Link2,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { can } from "@/lib/access-control";
 
 const ROLE_LABELS: Record<string, string> = {
   superadmin: "슈퍼관리자", hq: "본사", distributor: "총판", agency: "대리점", store: "매장",
@@ -108,23 +110,27 @@ type NodeRowProps = {
   isLast: boolean;
   ancestorIsLast: boolean[];
   myRole: string;
+  canManage: boolean;
   onResetPw: (id: number) => void;
   onDelete: (id: number, name: string) => void;
   onPermChange: (id: number, perm: string) => void;
   onToggle: (id: number, current: boolean) => void;
   onAddChild: (node: TreeNode) => void;
+  mappingByUser: Map<number, string>;
+  onMapStore: (node: TreeNode) => void;
 };
 
 function NodeRow({
-  node, depth, isLast, ancestorIsLast, myRole,
+  node, depth, isLast, ancestorIsLast, myRole, canManage,
   onResetPw, onDelete, onPermChange, onToggle, onAddChild,
+  mappingByUser, onMapStore,
 }: NodeRowProps) {
   const [expanded, setExpanded] = useState(true);
   const hasChildren = node.children.length > 0;
   const Icon = ROLE_ICONS[node.role] ?? Shield;
   const desc = countDescendants(node);
   const childRole = CHILD_ROLE[node.role];
-  const canAddChild = !!childRole && (CREATABLE_ROLES[myRole] ?? []).includes(childRole);
+  const canAddChild = canManage && !!childRole && (CREATABLE_ROLES[myRole] ?? []).includes(childRole);
 
   return (
     <>
@@ -172,6 +178,13 @@ function NodeRow({
         <div className="flex-1 min-w-0 flex items-center gap-1.5 pr-2">
           <span className="font-semibold text-sm text-foreground truncate">{node.name}</span>
           <span className="text-xs text-muted-foreground font-mono shrink-0 hidden sm:inline">({node.loginId})</span>
+          {node.role === "store" && (
+            <span className={`text-[10px] shrink-0 hidden lg:inline ${
+              mappingByUser.has(node.id) ? "text-primary" : "text-yellow-400"
+            }`}>
+              {mappingByUser.get(node.id) ?? "TodoPay 미연결"}
+            </span>
+          )}
           {desc > 0 && (
             <span className="text-[10px] text-muted-foreground/50 shrink-0 hidden md:inline">{desc}개 하위</span>
           )}
@@ -188,7 +201,7 @@ function NodeRow({
 
         {/* Permission — hidden on mobile */}
         <div className="hidden md:block w-28 shrink-0 pr-3">
-          {node.role !== "superadmin" ? (
+          {node.role !== "superadmin" && canManage ? (
             <Select value={node.permission} onValueChange={(v) => onPermChange(node.id, v)}>
               <SelectTrigger className="h-7 text-xs border-border/40"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -205,7 +218,7 @@ function NodeRow({
         {/* Active */}
         <div className="w-14 md:w-16 shrink-0 flex items-center pr-2">
           <Switch checked={node.isActive} onCheckedChange={() => onToggle(node.id, node.isActive)}
-            disabled={node.role === "superadmin"} className="scale-75 origin-left" />
+            disabled={!canManage || node.role === "superadmin"} className="scale-75 origin-left" />
           <span className={`text-[10px] ml-0.5 hidden sm:inline ${node.isActive ? "text-primary" : "text-muted-foreground"}`}>
             {node.isActive ? "활성" : "비활"}
           </span>
@@ -219,9 +232,16 @@ function NodeRow({
         </div>
 
         {/* Actions — always visible on mobile, hover on desktop */}
-        <div className="w-14 shrink-0 flex items-center gap-1 pr-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-          {node.role !== "superadmin" && (
+        <div className="w-20 shrink-0 flex items-center gap-1 pr-2 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+          {canManage && node.role !== "superadmin" && (
             <>
+              {node.role === "store" && (
+                <button onClick={() => onMapStore(node)}
+                  className="h-6 w-6 rounded flex items-center justify-center text-primary/70 hover:text-primary hover:bg-primary/10 transition-colors"
+                  title="TodoPay 매장코드 연결">
+                  <Link2 className="h-3 w-3" />
+                </button>
+              )}
               <button onClick={() => onResetPw(node.id)}
                 className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
                 title="비밀번호 초기화">
@@ -246,11 +266,14 @@ function NodeRow({
           isLast={idx === node.children.length - 1}
           ancestorIsLast={[...ancestorIsLast, isLast]}
           myRole={myRole}
+          canManage={canManage}
           onResetPw={onResetPw}
           onDelete={onDelete}
           onPermChange={onPermChange}
           onToggle={onToggle}
           onAddChild={onAddChild}
+          mappingByUser={mappingByUser}
+          onMapStore={onMapStore}
         />
       ))}
     </>
@@ -276,14 +299,31 @@ export default function Users() {
   const [resetId, setResetId] = useState<number | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [form, setForm] = useState<FormState>({ ...DEFAULT_FORM });
+  const [mappingTarget, setMappingTarget] = useState<TreeNode | null>(null);
+  const [mappingCode, setMappingCode] = useState("");
+  const [mappingSaving, setMappingSaving] = useState(false);
 
   const myRole = user?.role ?? "store";
-  const creatableRoles = CREATABLE_ROLES[myRole] ?? [];
+  const canManage = can(user, "organizations.manage");
+  const creatableRoles = canManage ? (CREATABLE_ROLES[myRole] ?? []) : [];
   const requiredParentRole = REQUIRED_PARENT_ROLE[form.role] ?? null;
   const callerIsParent = !!requiredParentRole && myRole === requiredParentRole;
   const needsParentSelect = !!requiredParentRole && !callerIsParent && !lockedParent;
 
   const { data, isLoading, refetch } = useListUsers({ limit: 500 });
+  const { data: mappingData, refetch: refetchMappings } = useQuery({
+    queryKey: ["/api/integration-mappings"],
+    queryFn: () => customFetch<{
+      items: Array<{ userId: number; storeCode: string; status: string }>;
+    }>("/api/integration-mappings"),
+    enabled: Boolean(user && can(user, "organizations.read")),
+  });
+  const mappingByUser = useMemo(
+    () => new Map((mappingData?.items ?? [])
+      .filter(item => item.status === "active")
+      .map(item => [item.userId, item.storeCode])),
+    [mappingData],
+  );
 
   const { data: parentList } = useListUsers(
     needsParentSelect && requiredParentRole
@@ -391,6 +431,34 @@ export default function Users() {
     });
   };
 
+  const openStoreMapping = (node: TreeNode) => {
+    setMappingTarget(node);
+    setMappingCode(mappingByUser.get(node.id) ?? node.loginId);
+  };
+
+  const saveStoreMapping = async () => {
+    if (!mappingTarget || !/^[A-Za-z0-9_.-]{2,50}$/.test(mappingCode.trim())) {
+      toast({ title: "유효한 TodoPay 매장코드를 입력해주세요", variant: "destructive" });
+      return;
+    }
+    setMappingSaving(true);
+    try {
+      await customFetch(`/api/integration-mappings/users/${mappingTarget.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storeCode: mappingCode.trim() }),
+      });
+      await refetchMappings();
+      void qc.invalidateQueries({ queryKey: ["/api/auth/me"] });
+      setMappingTarget(null);
+      toast({ title: "TodoPay 매장코드 연결 완료" });
+    } catch {
+      toast({ title: "TodoPay 매장코드 연결 실패", variant: "destructive" });
+    } finally {
+      setMappingSaving(false);
+    }
+  };
+
   const totalCount = data?.items.length ?? 0;
 
   return (
@@ -416,7 +484,7 @@ export default function Users() {
           <div className="hidden md:block w-28 shrink-0">권한</div>
           <div className="w-14 md:w-16 shrink-0">상태</div>
           <div className="hidden sm:block w-12 shrink-0">OTP</div>
-          <div className="w-14 shrink-0">처리</div>
+          <div className="w-20 shrink-0">처리</div>
         </div>
 
         <div className="overflow-x-auto">
@@ -436,11 +504,14 @@ export default function Users() {
                   isLast={idx === tree.length - 1}
                   ancestorIsLast={[]}
                   myRole={myRole}
+                  canManage={canManage}
                   onResetPw={(id) => { setResetId(id); setNewPassword(""); }}
                   onDelete={handleDelete}
                   onPermChange={handlePermChange}
                   onToggle={handleToggle}
                   onAddChild={openCreateForChild}
+                  mappingByUser={mappingByUser}
+                  onMapStore={openStoreMapping}
                 />
               ))}
             </div>
@@ -448,10 +519,49 @@ export default function Users() {
         </div>
       </div>
 
+      <Dialog open={!!mappingTarget} onOpenChange={(open) => !open && setMappingTarget(null)}>
+        <DialogContent className="max-w-md mx-4 sm:mx-auto">
+          <DialogHeader>
+            <DialogTitle>TodoPay 매장 연결</DialogTitle>
+            <DialogDescription>
+              조직 계정이 조회할 TodoPay 결제 원장의 매장 범위를 연결합니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {mappingTarget?.name} 계정이 조회할 TodoPay 원장의 매장코드를 입력합니다.
+            </p>
+            <div className="space-y-1.5">
+              <Label>TodoPay 매장코드</Label>
+              <Input
+                value={mappingCode}
+                onChange={(event) => setMappingCode(event.target.value.replace(/\s/g, ""))}
+                placeholder="예: maejang"
+              />
+            </div>
+            <p className="text-xs text-yellow-400">
+              잘못 연결하면 해당 조직의 금융 조회 범위가 달라지므로 실제 TodoPay 매장코드와 일치하는지 확인하세요.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setMappingTarget(null)}>취소</Button>
+            <Button onClick={saveStoreMapping} disabled={mappingSaving || !mappingCode}>
+              {mappingSaving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              연결 저장
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Reset Password Dialog */}
       <Dialog open={!!resetId} onOpenChange={(o) => !o && setResetId(null)}>
         <DialogContent className="mx-4 sm:mx-auto">
-          <DialogHeader><DialogTitle>비밀번호 초기화</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>비밀번호 초기화</DialogTitle>
+            <DialogDescription>
+              선택한 조직 계정에 적용할 새 비밀번호를 입력합니다.
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-2">
             <Label className="text-sm">새 비밀번호</Label>
             <Input type="password" value={newPassword}
@@ -475,6 +585,9 @@ export default function Users() {
                 ? `${ROLE_LABELS[CHILD_ROLE[lockedParent.role] ?? ""] ?? ""} 등록`
                 : "조직원 등록"}
             </DialogTitle>
+            <DialogDescription>
+              역할과 상위 조직을 확인한 뒤 조직원 계정을 등록합니다.
+            </DialogDescription>
             {form.role && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1 flex-wrap">
                 <span>계층 위치:</span>

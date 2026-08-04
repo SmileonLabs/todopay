@@ -19,9 +19,14 @@ function getDefaultDates() {
   const end = new Date();
   const start = new Date();
   start.setDate(end.getDate() - 29);
+  const formatLocalDate = (date: Date) => [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
   return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
+    start: formatLocalDate(start),
+    end: formatLocalDate(end),
   };
 }
 

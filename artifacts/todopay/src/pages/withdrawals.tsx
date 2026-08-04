@@ -15,7 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -132,6 +132,9 @@ function CreateWithdrawalDialog({ open, onClose, onSuccess }: { open: boolean; o
           <DialogTitle className="flex items-center gap-2">
             <Building2 className="h-4 w-4 text-primary" />매장 출금 신청
           </DialogTitle>
+          <DialogDescription>
+            출금할 매장과 금액, 입금받을 계좌정보를 확인해 신청합니다.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
           {/* 매장 선택 (store 계정은 자신이 자동으로 선택됨) */}
@@ -504,7 +507,12 @@ export default function Withdrawals() {
       {/* Reject dialog */}
       <Dialog open={!!rejectDialogId} onOpenChange={(o) => !o && setRejectDialogId(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>출금 반려</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>출금 반려</DialogTitle>
+            <DialogDescription>
+              신청자에게 안내할 출금 반려 사유를 입력합니다.
+            </DialogDescription>
+          </DialogHeader>
           <div className="space-y-2">
             <label className="text-sm text-muted-foreground">반려 사유</label>
             <Input value={rejectReason} onChange={(e) => setRejectReason(e.target.value)} placeholder="반려 사유 입력" />

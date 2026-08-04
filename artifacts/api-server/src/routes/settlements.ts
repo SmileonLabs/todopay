@@ -2,12 +2,14 @@ import { Router } from "express";
 import { db, balanceRecordsTable, transactionsTable, membersTable } from "@workspace/db";
 import { eq, and, sql, gte, lte, inArray } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth.js";
+import { enforceCapability } from "../lib/access-control.js";
 
 const router = Router();
 
 router.get("/settlements/summary", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "statistics.read", res)) return;
 
   const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
 
@@ -70,6 +72,7 @@ router.get("/settlements/summary", async (req, res) => {
 router.get("/settlements/records", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "statistics.read", res)) return;
 
   const { startDate, endDate, page: pageStr, limit: limitStr } = req.query as {
     startDate?: string; endDate?: string; page?: string; limit?: string;

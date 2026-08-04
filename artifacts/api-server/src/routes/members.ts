@@ -2,17 +2,21 @@ import { Router } from "express";
 import { db, membersTable, virtualAccountsTable, adminUsersTable } from "@workspace/db";
 import { eq, ilike, and, or, inArray, sql } from "drizzle-orm";
 import { ListMembersQueryParams, CreateMemberBody, UpdateMemberBody, UpdateMemberStatusBody } from "@workspace/api-zod";
-import { requireAdmin, simpleHash } from "../lib/auth.js";
+import { hashPassword, requireAdmin } from "../lib/auth.js";
 import { getAccessibleStoreIds } from "../lib/query-utils.js";
+import { enforceCapability } from "../lib/access-control.js";
 
 const router = Router();
 
-const BANKS = ["국민은행", "신한은행", "우리은행", "하나은행", "기업은행", "농협은행", "카카오뱅크"];
+function paymentIntegrationEnabled(): boolean {
+  return process.env.PAYMENT_INTEGRATION_ENABLED === "true";
+}
 
-function generateAccountNumber(): string {
-  const datePart = new Date().toISOString().slice(2, 8).replace(/-/g, "");
-  const randPart = Array.from({ length: 5 }, () => Math.floor(Math.random() * 10)).join("");
-  return `${datePart}${randPart}`;
+function paymentIntegrationUnavailable(res: import("express").Response): void {
+  res.status(503).json({
+    error: "가상계좌 발급은 PG 실연동 완료 전까지 사용할 수 없습니다.",
+    code: "PAYMENT_INTEGRATION_DISABLED",
+  });
 }
 
 /** Format a single member with its virtual account and store name (for single-item endpoints). */
@@ -86,6 +90,7 @@ async function formatMemberBatch(members: (typeof membersTable.$inferSelect)[]) 
 router.get("/members/register-link", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "members.read", res)) return;
   const baseUrl = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
   res.json({ url: `https://${baseUrl}/register/member` });
 });
@@ -93,6 +98,7 @@ router.get("/members/register-link", async (req, res) => {
 router.get("/members", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "members.read", res)) return;
 
   const parsed = ListMembersQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
@@ -129,6 +135,13 @@ router.get("/members", async (req, res) => {
 });
 
 router.post("/members", async (req, res) => {
+  const caller = await requireAdmin(req.headers.authorization);
+  if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "members.manage", res)) return;
+  if (!paymentIntegrationEnabled()) {
+    paymentIntegrationUnavailable(res);
+    return;
+  }
   const parsed = CreateMemberBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const { loginId, password, name, phone, email, storeCode, birthdate } = parsed.data;
@@ -139,6 +152,11 @@ router.post("/members", async (req, res) => {
 
   const [store] = await db.select().from(adminUsersTable)
     .where(and(eq(adminUsersTable.loginId, storeCode), eq(adminUsersTable.role, "store")));
+  const accessibleStoreIds = await getAccessibleStoreIds(caller);
+  if (store && accessibleStoreIds !== null && !accessibleStoreIds.includes(store.id)) {
+    res.status(403).json({ error: "해당 매장에 회원을 등록할 권한이 없습니다." });
+    return;
+  }
   if (!store) { res.status(400).json({ error: "유효하지 않은 매장코드입니다" }); return; }
 
   const [existing] = await db.select().from(membersTable).where(eq(membersTable.loginId, loginId));
@@ -149,7 +167,7 @@ router.post("/members", async (req, res) => {
   await db.transaction(async (dbtx) => {
     const [m] = await dbtx.insert(membersTable).values({
       loginId,
-      passwordHash: simpleHash(password),
+      passwordHash: await hashPassword(password),
       name,
       phone,
       email: email ?? null,
@@ -158,13 +176,6 @@ router.post("/members", async (req, res) => {
       birthdate: birthdate ?? null,
       isVerified: true,
     }).returning();
-
-    await dbtx.insert(virtualAccountsTable).values({
-      accountNumber: generateAccountNumber(),
-      bankName: BANKS[Math.floor(Math.random() * BANKS.length)],
-      status: "active",
-      memberId: m.id,
-    });
 
     createdMember = m;
   });
@@ -179,6 +190,7 @@ router.post("/members", async (req, res) => {
 router.get("/members/:id", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "members.read", res)) return;
 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -198,6 +210,7 @@ router.get("/members/:id", async (req, res) => {
 router.patch("/members/:id", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "members.manage", res)) return;
 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -229,11 +242,21 @@ router.patch("/members/:id", async (req, res) => {
 router.patch("/members/:id/status", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "members.manage", res)) return;
 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
   const parsed = UpdateMemberStatusBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+  const [member] = await db.select().from(membersTable).where(eq(membersTable.id, id));
+  if (!member) { res.status(404).json({ error: "Not found" }); return; }
+  if (member.storeId) {
+    const accessibleStoreIds = await getAccessibleStoreIds(caller);
+    if (accessibleStoreIds !== null && !accessibleStoreIds.includes(member.storeId)) {
+      res.status(403).json({ error: "권한이 없습니다." });
+      return;
+    }
+  }
   const [m_] = await db.update(membersTable)
     .set({ isActive: parsed.data.isActive })
     .where(eq(membersTable.id, id))
@@ -243,8 +266,13 @@ router.patch("/members/:id/status", async (req, res) => {
 });
 
 router.post("/members/:id/virtual-account", async (req, res) => {
+  if (!paymentIntegrationEnabled()) {
+    paymentIntegrationUnavailable(res);
+    return;
+  }
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "members.manage", res)) return;
 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
@@ -258,24 +286,13 @@ router.post("/members/:id/virtual-account", async (req, res) => {
     }
   }
 
-  await db.transaction(async (dbtx) => {
-    await dbtx.update(virtualAccountsTable)
-      .set({ status: "revoked" })
-      .where(eq(virtualAccountsTable.memberId, id));
-    await dbtx.insert(virtualAccountsTable).values({
-      accountNumber: generateAccountNumber(),
-      bankName: BANKS[Math.floor(Math.random() * BANKS.length)],
-      status: "active",
-      memberId: id,
-    });
-  });
-
-  res.json(await formatMember(m));
+  res.status(501).json({ error: "PG 가상계좌 재발급 연동이 아직 구현되지 않았습니다." });
 });
 
 router.delete("/members/:id", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "members.manage", res)) return;
 
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }

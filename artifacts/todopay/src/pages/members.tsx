@@ -15,7 +15,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -299,7 +299,12 @@ export default function Members() {
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
         <DialogContent className="max-w-md mx-4 sm:mx-auto">
-          <DialogHeader><DialogTitle>회원 등록</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>회원 등록</DialogTitle>
+            <DialogDescription>
+              회원 기본정보를 입력해 신규 회원을 등록합니다.
+            </DialogDescription>
+          </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             {[
               { label: "아이디 *", key: "loginId", placeholder: "아이디" },

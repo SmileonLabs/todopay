@@ -17,7 +17,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { formatMoney, formatDate } from "@/lib/format";
 import { Loader2, TrendingUp, TrendingDown, Wallet, PlusCircle, AlertCircle } from "lucide-react";
@@ -303,6 +303,9 @@ export default function Balances() {
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>잔액 수동 입력</DialogTitle>
+            <DialogDescription>
+              선택한 조직의 잔액 증감 내역을 수동으로 기록합니다.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">

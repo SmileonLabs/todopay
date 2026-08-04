@@ -3,6 +3,8 @@ import { db, balanceRecordsTable, withdrawalsTable, adminUsersTable, storeBalanc
 import { eq, and, sql, gte, lte } from "drizzle-orm";
 import { ListBalanceRecordsQueryParams, CreateBalanceRecordBody } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
+import { requireLegacyFinancialWrites } from "../lib/integration-gate.js";
+import { enforceCapability } from "../lib/access-control.js";
 
 const router = Router();
 
@@ -19,6 +21,7 @@ async function getRunningBalance(userId?: number): Promise<number> {
 router.get("/balances/summary", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.read", res)) return;
 
   let balance: number;
   let pendingAmount: number;
@@ -54,6 +57,7 @@ router.get("/balances/summary", async (req, res) => {
 router.get("/balances", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.read", res)) return;
 
   const parsed = ListBalanceRecordsQueryParams.safeParse(req.query);
   const params = parsed.success ? parsed.data : {};
@@ -90,8 +94,10 @@ router.get("/balances", async (req, res) => {
 });
 
 router.post("/balances", async (req, res) => {
+  if (!requireLegacyFinancialWrites(res)) return;
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!enforceCapability(caller, "financial.manage", res)) return;
 
   if (caller.role !== "superadmin") {
     res.status(403).json({ error: "잔액 수동 입력은 최고관리자만 가능합니다" }); return;
