@@ -64,7 +64,12 @@ Resources:
     Properties:
       ListenerArn: !Ref HttpsListenerArn
       Priority: !Ref ListenerRulePriority
-      Conditions: [{ Field: host-header, Values: [admin.sellink.todopay.io] }]
+      Conditions:
+        - Field: host-header
+          Values:
+            - admin.sellink.todopay.io
+            - sellpartner.link
+            - www.sellpartner.link
       Actions: [{ Type: forward, TargetGroupArn: !Ref TargetGroup }]
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -84,7 +89,7 @@ Resources:
           Environment:
             - { Name: NODE_ENV, Value: production }
             - { Name: PORT, Value: "8080" }
-            - { Name: CORS_ORIGINS, Value: https://admin.sellink.todopay.io }
+            - { Name: CORS_ORIGINS, Value: "https://admin.sellink.todopay.io,https://sellpartner.link,https://www.sellpartner.link" }
             - { Name: PAYMENT_INTEGRATION_ENABLED, Value: "false" }
             - { Name: INTERNAL_FEE_PROCESSING_ENABLED, Value: "false" }
             - { Name: TODOPAY_API_BASE_URL, Value: https://api.todopay.io }
