@@ -11,6 +11,7 @@ export const membersTable = pgTable("members", {
   email: text("email"),
   storeCode: text("store_code"),
   storeId: integer("store_id"),
+  merchantId: integer("merchant_id"),
   birthdate: text("birthdate"),
   isVerified: boolean("is_verified").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),

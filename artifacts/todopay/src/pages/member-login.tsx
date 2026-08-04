@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import logo from "@/assets/logo.svg";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -115,7 +115,9 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-4">
         <div className="flex items-center justify-between">
-          <img src={logo} alt="TodoPay" className="h-16 w-auto brightness-0 invert" />
+          <div className="text-white">
+            <BrandWordmark className="h-auto w-44" />
+          </div>
           <button onClick={onLogout} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
             <LogOut className="h-3.5 w-3.5" />로그아웃
           </button>
@@ -476,7 +478,9 @@ export default function MemberLogin() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm space-y-5">
         <div className="text-center space-y-2">
-          <img src={logo} alt="TodoPay" className="h-20 w-auto mx-auto brightness-0 invert" />
+          <div className="mx-auto text-white">
+            <BrandWordmark className="mx-auto h-auto w-56" />
+          </div>
           <p className="text-sm text-muted-foreground">가상계좌 구매 포털</p>
         </div>
 

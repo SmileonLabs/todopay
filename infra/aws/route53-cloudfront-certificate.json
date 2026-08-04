@@ -1,0 +1,16 @@
+{
+  "Comment": "Validate the CloudFront ACM certificate for todopay.io",
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "_d3e4ded306d4c3c2e90737e25a9dbf82.todopay.io.",
+        "Type": "CNAME",
+        "TTL": 300,
+        "ResourceRecords": [
+          { "Value": "_db3be137cccb168f02490d70e98b4972.jkddzztszm.acm-validations.aws." }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Encrypted, highly available PostgreSQL and Redis data services for TodoPay.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: todopay-prod
+  DataSubnetA:
+    Type: AWS::EC2::Subnet::Id
+  DataSubnetC:
+    Type: AWS::EC2::Subnet::Id
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup::Id
+
+Resources:
+  DatabaseCredentials:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${EnvironmentName}/database"
+      Description: TodoPay PostgreSQL application credentials
+      GenerateSecretString:
+        SecretStringTemplate: '{"username":"todopay_app"}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\\'
+
+  RedisCredentials:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub "${EnvironmentName}/redis"
+      Description: TodoPay Redis AUTH token
+      GenerateSecretString:
+        SecretStringTemplate: '{}'
+        GenerateStringKey: password
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\\'
+
+  DatabaseSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for TodoPay PostgreSQL
+      SubnetIds: [!Ref DataSubnetA, !Ref DataSubnetC]
+      Tags: [{ Key: Name, Value: !Sub "${EnvironmentName}-db" }]
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub "${EnvironmentName}-postgres"
+      Engine: postgres
+      DBInstanceClass: db.t4g.small
+      AllocatedStorage: 30
+      MaxAllocatedStorage: 200
+      StorageType: gp3
+      StorageEncrypted: true
+      MultiAZ: true
+      PubliclyAccessible: false
+      DBName: todopay
+      MasterUsername: !Sub "{{resolve:secretsmanager:${DatabaseCredentials}:SecretString:username}}"
+      MasterUserPassword: !Sub "{{resolve:secretsmanager:${DatabaseCredentials}:SecretString:password}}"
+      DBSubnetGroupName: !Ref DatabaseSubnetGroup
+      VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
+      BackupRetentionPeriod: 35
+      CopyTagsToSnapshot: true
+      DeletionProtection: true
+      AutoMinorVersionUpgrade: true
+      EnableCloudwatchLogsExports: [postgresql, upgrade]
+      Tags: [{ Key: Name, Value: !Sub "${EnvironmentName}-postgres" }]
+
+  RedisSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Private subnets for TodoPay Redis
+      SubnetIds: [!Ref DataSubnetA, !Ref DataSubnetC]
+      CacheSubnetGroupName: !Sub "${EnvironmentName}-redis"
+
+  Redis:
+    Type: AWS::ElastiCache::ReplicationGroup
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      ReplicationGroupId: !Sub "${EnvironmentName}-redis"
+      ReplicationGroupDescription: TodoPay rate limits and payment event queue
+      Engine: redis
+      CacheNodeType: cache.t4g.small
+      NumCacheClusters: 2
+      AutomaticFailoverEnabled: true
+      MultiAZEnabled: true
+      AtRestEncryptionEnabled: true
+      TransitEncryptionEnabled: true
+      AuthToken: !Sub "{{resolve:secretsmanager:${RedisCredentials}:SecretString:password}}"
+      CacheSubnetGroupName: !Ref RedisSubnetGroup
+      SecurityGroupIds: [!Ref RedisSecurityGroup]
+      SnapshotRetentionLimit: 14
+      SnapshotWindow: "18:00-19:00"
+      PreferredMaintenanceWindow: "sun:19:00-sun:20:00"
+      Tags: [{ Key: Name, Value: !Sub "${EnvironmentName}-redis" }]
+
+Outputs:
+  DatabaseSecretArn: { Value: !Ref DatabaseCredentials }
+  RedisSecretArn: { Value: !Ref RedisCredentials }
+  DatabaseEndpoint: { Value: !GetAtt Database.Endpoint.Address }
+  DatabasePort: { Value: !GetAtt Database.Endpoint.Port }
+  RedisPrimaryEndpoint: { Value: !GetAtt Redis.PrimaryEndPoint.Address }
+  RedisPort: { Value: !GetAtt Redis.PrimaryEndPoint.Port }

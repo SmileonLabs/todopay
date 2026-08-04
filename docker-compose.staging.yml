@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: todopay
+      POSTGRES_USER: todopay
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set-in-staging-secret-store}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todopay -d todopay"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [internal]
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://todopay:${POSTGRES_PASSWORD}@postgres:5432/todopay
+      REDIS_URL: redis://redis:6379
+      REQUIRE_REDIS: "true"
+      PORT: "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [internal]
+
+  worker:
+    build: .
+    command: ["node", "--enable-source-maps", "./dist/worker.mjs"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://todopay:${POSTGRES_PASSWORD}@postgres:5432/todopay
+      REDIS_URL: redis://redis:6379
+      REQUIRE_REDIS: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  internal:
+    internal: true

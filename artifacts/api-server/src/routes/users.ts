@@ -243,7 +243,10 @@ router.post("/users/:id/reset-password", async (req, res) => {
   if (!allowed) { res.status(403).json({ error: "권한이 없습니다" }); return; }
 
   const result = await db.update(adminUsersTable)
-    .set({ passwordHash: await hashPassword(parsed.data.newPassword) })
+    .set({
+      passwordHash: await hashPassword(parsed.data.newPassword),
+      sessionVersion: sql`${adminUsersTable.sessionVersion} + 1`,
+    })
     .where(eq(adminUsersTable.id, id))
     .returning({ id: adminUsersTable.id });
 

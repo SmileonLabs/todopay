@@ -13,6 +13,12 @@ import statisticsRouter from "./statistics";
 import noticesRouter from "./notices";
 import otpRouter from "./otp";
 import settlementsRouter from "./settlements";
+import merchantsRouter from "./merchants";
+import kpPayWebhooksRouter from "./kp-pay-webhooks";
+import externalV1Router from "./external-v1";
+import partnerRouter from "./partner-v4";
+import kpPayVirtualAccountsRouter from "./kp-pay-virtual-accounts";
+import platformOpsRouter from "./platform-ops";
 const router: IRouter = Router();
 
 router.use(healthRouter);
@@ -29,5 +35,11 @@ router.use(statisticsRouter);
 router.use(noticesRouter);
 router.use(otpRouter);
 router.use(settlementsRouter);
+router.use(merchantsRouter);
+router.use(platformOpsRouter);
+router.use(kpPayWebhooksRouter);
+router.use(externalV1Router);
+router.use(partnerRouter);
+router.use(kpPayVirtualAccountsRouter);
 
 export default router;

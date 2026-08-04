@@ -2,17 +2,22 @@ import { Router } from "express";
 import { db, membersTable, virtualAccountsTable, adminUsersTable } from "@workspace/db";
 import { eq, ilike, and, or, inArray, sql } from "drizzle-orm";
 import { ListMembersQueryParams, CreateMemberBody, UpdateMemberBody, UpdateMemberStatusBody } from "@workspace/api-zod";
-import { requireAdmin, simpleHash } from "../lib/auth.js";
+import { hashPassword, requireAdmin } from "../lib/auth.js";
+import { writeAuditLog } from "../lib/audit.js";
+import { allowRequest } from "../lib/rate-limit.js";
 import { getAccessibleStoreIds } from "../lib/query-utils.js";
 
 const router = Router();
 
-const BANKS = ["국민은행", "신한은행", "우리은행", "하나은행", "기업은행", "농협은행", "카카오뱅크"];
+function paymentProviderEnabled(): boolean {
+  return process.env.PAYMENT_PROVIDER_ENABLED === "true";
+}
 
-function generateAccountNumber(): string {
-  const datePart = new Date().toISOString().slice(2, 8).replace(/-/g, "");
-  const randPart = Array.from({ length: 5 }, () => Math.floor(Math.random() * 10)).join("");
-  return `${datePart}${randPart}`;
+function paymentProviderUnavailable(res: import("express").Response): void {
+  res.status(503).json({
+    error: "가상계좌 발급은 KPPay 실연동 및 1원 인증 완료 전까지 사용할 수 없습니다.",
+    code: "PAYMENT_PROVIDER_DISABLED",
+  });
 }
 
 /** Format a single member with its virtual account and store name (for single-item endpoints). */
@@ -129,42 +134,44 @@ router.get("/members", async (req, res) => {
 });
 
 router.post("/members", async (req, res) => {
+  if (!paymentProviderEnabled()) {
+    paymentProviderUnavailable(res);
+    return;
+  }
+  if (!(await allowRequest("member-register", req.ip ?? "unknown", { limit: 10, windowSeconds: 60 * 60 }))) {
+    res.status(429).json({ error: "Too many registration attempts" }); return;
+  }
   const parsed = CreateMemberBody.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
   const { loginId, password, name, phone, email, storeCode, birthdate } = parsed.data;
 
-  if (!storeCode?.trim()) {
+  const normalizedStoreCode = storeCode?.trim();
+  if (!normalizedStoreCode) {
     res.status(400).json({ error: "매장코드는 필수입니다" }); return;
   }
 
   const [store] = await db.select().from(adminUsersTable)
-    .where(and(eq(adminUsersTable.loginId, storeCode), eq(adminUsersTable.role, "store")));
+    .where(and(eq(adminUsersTable.loginId, normalizedStoreCode), eq(adminUsersTable.role, "store")));
   if (!store) { res.status(400).json({ error: "유효하지 않은 매장코드입니다" }); return; }
 
   const [existing] = await db.select().from(membersTable).where(eq(membersTable.loginId, loginId));
   if (existing) { res.status(409).json({ error: "이미 사용중인 아이디입니다" }); return; }
 
+  const passwordHash = await hashPassword(password);
   let createdMember: typeof membersTable.$inferSelect | null = null;
 
   await db.transaction(async (dbtx) => {
     const [m] = await dbtx.insert(membersTable).values({
       loginId,
-      passwordHash: simpleHash(password),
+      passwordHash,
       name,
       phone,
       email: email ?? null,
-      storeCode,
+      storeCode: normalizedStoreCode,
       storeId: store.id,
       birthdate: birthdate ?? null,
       isVerified: true,
     }).returning();
-
-    await dbtx.insert(virtualAccountsTable).values({
-      accountNumber: generateAccountNumber(),
-      bankName: BANKS[Math.floor(Math.random() * BANKS.length)],
-      status: "active",
-      memberId: m.id,
-    });
 
     createdMember = m;
   });
@@ -173,7 +180,10 @@ router.post("/members", async (req, res) => {
     res.status(500).json({ error: "회원 등록 중 오류가 발생했습니다" }); return;
   }
 
-  res.status(201).json(await formatMember(createdMember));
+  const created = createdMember as typeof membersTable.$inferSelect;
+  await writeAuditLog(req, { actorType: "system", action: "member.register", resourceType: "member", resourceId: created.id, metadata: { storeId: store.id } });
+
+  res.status(201).json(await formatMember(created));
 });
 
 router.get("/members/:id", async (req, res) => {
@@ -243,6 +253,10 @@ router.patch("/members/:id/status", async (req, res) => {
 });
 
 router.post("/members/:id/virtual-account", async (req, res) => {
+  if (!paymentProviderEnabled()) {
+    paymentProviderUnavailable(res);
+    return;
+  }
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
 
@@ -258,19 +272,7 @@ router.post("/members/:id/virtual-account", async (req, res) => {
     }
   }
 
-  await db.transaction(async (dbtx) => {
-    await dbtx.update(virtualAccountsTable)
-      .set({ status: "revoked" })
-      .where(eq(virtualAccountsTable.memberId, id));
-    await dbtx.insert(virtualAccountsTable).values({
-      accountNumber: generateAccountNumber(),
-      bankName: BANKS[Math.floor(Math.random() * BANKS.length)],
-      status: "active",
-      memberId: id,
-    });
-  });
-
-  res.json(await formatMember(m));
+  res.status(501).json({ error: "KPPay 가상계좌 재발급 연동이 아직 구현되지 않았습니다." });
 });
 
 router.delete("/members/:id", async (req, res) => {

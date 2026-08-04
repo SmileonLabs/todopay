@@ -1,0 +1,15 @@
+{
+  "containerOverrides": [
+    {
+      "name": "migrate",
+      "command": [
+        "pnpm",
+        "--filter",
+        "@workspace/db",
+        "exec",
+        "node",
+        "./scripts/run-financial-load-test.mjs"
+      ]
+    }
+  ]
+}

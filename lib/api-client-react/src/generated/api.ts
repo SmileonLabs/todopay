@@ -2124,6 +2124,90 @@ export const useRejectWithdrawal = <
 };
 
 /**
+ * @summary Mark an approved withdrawal as paid
+ */
+export const getMarkWithdrawalPaidUrl = (id: number) => {
+  return `/api/withdrawals/${id}/pay`;
+};
+
+export const markWithdrawalPaid = async (
+  id: number,
+  options?: RequestInit,
+): Promise<Withdrawal> => {
+  return customFetch<Withdrawal>(getMarkWithdrawalPaidUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getMarkWithdrawalPaidMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markWithdrawalPaid>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof markWithdrawalPaid>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["markWithdrawalPaid"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof markWithdrawalPaid>>,
+    { id: number }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return markWithdrawalPaid(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MarkWithdrawalPaidMutationResult = NonNullable<
+  Awaited<ReturnType<typeof markWithdrawalPaid>>
+>;
+
+export type MarkWithdrawalPaidMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Mark an approved withdrawal as paid
+ */
+export const useMarkWithdrawalPaid = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof markWithdrawalPaid>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof markWithdrawalPaid>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  return useMutation(getMarkWithdrawalPaidMutationOptions(options));
+};
+
+/**
  * @summary Get withdrawal summary totals
  */
 export const getGetWithdrawalSummaryUrl = () => {

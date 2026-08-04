@@ -41,9 +41,22 @@ testem.log
 .DS_Store
 Thumbs.db
 
+# Secrets (keep the committed template only)
+.env
+.env.*
+!.env.example
+
 .cursor/rules/nx-rules.mdc
 .github/instructions/nx.instructions.md
 
 # Replit
 .cache/
 .local/
+
+# Local work products and reference documents
+/output/
+/pdf/
+/branding/
+/sellink-fresh-source/
+/*.pdf
+/scripts/create_ip_registration_letter.py

@@ -1,0 +1,24 @@
+{
+  "cluster": "todopay-prod",
+  "taskDefinition": "todopay-prod-migration",
+  "launchType": "FARGATE",
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": ["subnet-0ec6976434a7a0d31", "subnet-03a582fff9485b2db"],
+      "securityGroups": ["sg-0a9c53c93c52a16dd"],
+      "assignPublicIp": "DISABLED"
+    }
+  },
+  "overrides": {
+    "containerOverrides": [
+      {
+        "name": "migrate",
+        "command": [
+          "node",
+          "-e",
+          "eval(Buffer.from('Y29uc3Qge0NsaWVudH09cmVxdWlyZSgicGciKTsgY29uc3QgYz1uZXcgQ2xpZW50KHtjb25uZWN0aW9uU3RyaW5nOnByb2Nlc3MuZW52LkRBVEFCQVNFX1VSTH0pOyBjLmNvbm5lY3QoKS50aGVuKCgpPT5jLnF1ZXJ5KCJzZWxlY3QgdGFibGVuYW1lIGZyb20gcGdfdGFibGVzIHdoZXJlIHNjaGVtYW5hbWUgPSBjdXJyZW50X3NjaGVtYSgpIG9yZGVyIGJ5IHRhYmxlbmFtZSIpKS50aGVuKHg9Pntjb25zb2xlLmxvZyhKU09OLnN0cmluZ2lmeSh4LnJvd3MpKTsgcmV0dXJuIGMuZW5kKCk7fSkuY2F0Y2goZT0+e2NvbnNvbGUuZXJyb3IoZS5tZXNzYWdlKTsgcHJvY2Vzcy5leGl0KDEpO30pOw==','base64').toString())"
+        ]
+      }
+    ]
+  }
+}

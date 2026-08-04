@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Isolated CloudFront and private S3 frontend for a TodoPay admin portal.
+
+Parameters:
+  AppName: { Type: String }
+  DomainName: { Type: String }
+  BucketName: { Type: String }
+  CertificateArn: { Type: String }
+  ApiOriginDomain: { Type: String, Default: api.todopay.io }
+
+Resources:
+  WebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true }
+      OwnershipControls: { Rules: [{ ObjectOwnership: BucketOwnerEnforced }] }
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 } }] }
+  Oac:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig: { Name: !Sub "${AppName}-oac", OriginAccessControlOriginType: s3, SigningBehavior: always, SigningProtocol: sigv4 }
+  StaticCache:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${AppName}-static-v1"
+        DefaultTTL: 86400
+        MaxTTL: 31536000
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig: { CookieBehavior: none }
+          HeadersConfig: { HeaderBehavior: none }
+          QueryStringsConfig: { QueryStringBehavior: none }
+          EnableAcceptEncodingGzip: true
+          EnableAcceptEncodingBrotli: true
+  ApiNoCache:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub "${AppName}-api-nocache-v1"
+        DefaultTTL: 0
+        MaxTTL: 0
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          CookiesConfig: { CookieBehavior: none }
+          HeadersConfig: { HeaderBehavior: none }
+          QueryStringsConfig: { QueryStringBehavior: none }
+          EnableAcceptEncodingGzip: false
+          EnableAcceptEncodingBrotli: false
+  ApiOriginRequest:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: !Sub "${AppName}-api-request-v1"
+        CookiesConfig: { CookieBehavior: all }
+        HeadersConfig: { HeaderBehavior: allViewer }
+        QueryStringsConfig: { QueryStringBehavior: all }
+  SpaRewrite:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: !Sub "${AppName}-spa-rewrite"
+      AutoPublish: true
+      FunctionConfig: { Comment: Rewrite SPA routes without touching API paths, Runtime: cloudfront-js-1.0 }
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          if (!request.uri.startsWith('/api/') && !request.uri.includes('.')) request.uri = '/index.html';
+          return request;
+        }
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        Aliases: [!Ref DomainName]
+        DefaultRootObject: index.html
+        Origins:
+          - Id: web
+            DomainName: !GetAtt WebBucket.RegionalDomainName
+            S3OriginConfig: { OriginAccessIdentity: "" }
+            OriginAccessControlId: !GetAtt Oac.Id
+          - Id: api
+            DomainName: !Ref ApiOriginDomain
+            CustomOriginConfig: { HTTPSPort: 443, OriginProtocolPolicy: https-only, OriginSSLProtocols: [TLSv1.2] }
+        DefaultCacheBehavior:
+          TargetOriginId: web
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: !Ref StaticCache
+          Compress: true
+          FunctionAssociations: [{ EventType: viewer-request, FunctionARN: !GetAtt SpaRewrite.FunctionARN }]
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: api
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            CachedMethods: [GET, HEAD]
+            CachePolicyId: !Ref ApiNoCache
+            OriginRequestPolicyId: !Ref ApiOriginRequest
+            Compress: true
+        ViewerCertificate: { AcmCertificateArn: !Ref CertificateArn, SslSupportMethod: sni-only, MinimumProtocolVersion: TLSv1.2_2021 }
+  BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudfront.amazonaws.com }
+            Action: s3:GetObject
+            Resource: !Sub "${WebBucket.Arn}/*"
+            Condition: { StringEquals: { "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${Distribution}" } }
+
+Outputs:
+  BucketName: { Value: !Ref WebBucket }
+  DistributionId: { Value: !Ref Distribution }
+  DistributionDomainName: { Value: !GetAtt Distribution.DomainName }

@@ -9,7 +9,11 @@
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
-    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts"
+    "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+    "migrate-production": "node ./scripts/apply-production-migrations.mjs",
+    "backfill-merchant-fees": "node ./scripts/backfill-merchant-fees.mjs",
+    "set-merchant-api-key": "node ./scripts/set-merchant-api-key.mjs",
+    "set-merchant-allowed-ips": "node ./scripts/set-merchant-allowed-ips.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

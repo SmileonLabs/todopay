@@ -1,5 +1,5 @@
 import React, { useState, useRef } from "react";
-import logo from "@/assets/logo.svg";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -159,7 +159,9 @@ export default function MemberRegister() {
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="flex justify-center">
-            <img src={logo} alt="TodoPay" className="h-20 w-auto brightness-0 invert" />
+            <div className="text-white">
+              <BrandWordmark className="h-auto w-56" />
+            </div>
           </div>
           <Card className="bg-card border-border/50">
             <CardContent className="pt-8 pb-8 flex flex-col items-center text-center space-y-6">
@@ -210,7 +212,9 @@ export default function MemberRegister() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-md space-y-5">
         <div className="flex flex-col items-center gap-2">
-          <img src={logo} alt="TodoPay" className="h-20 w-auto brightness-0 invert" />
+          <div className="text-white">
+            <BrandWordmark className="h-auto w-56" />
+          </div>
           <p className="text-xs text-muted-foreground uppercase tracking-widest">회원 가입</p>
         </div>
 

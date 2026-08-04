@@ -1,0 +1,384 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: TodoPay production edge protection, audit trail, threat detection, and financial alarms.
+
+Parameters:
+  EnvironmentName: { Type: String, Default: todopay-prod }
+  LoadBalancerArn: { Type: String }
+  LoadBalancerFullName: { Type: String }
+  TargetGroupFullName: { Type: String }
+  DatabaseIdentifier: { Type: String, Default: todopay-prod-postgres }
+  RedisReplicationGroupId: { Type: String, Default: todopay-prod-redis }
+  ApiLogGroupName: { Type: String, Default: /ecs/todopay-prod/api }
+
+Resources:
+  AccessLogBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-access-logs-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      LifecycleConfiguration:
+        Rules:
+          - Id: ArchiveAndExpire
+            Status: Enabled
+            Transitions: [{ StorageClass: STANDARD_IA, TransitionInDays: 30 }]
+            ExpirationInDays: 365
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls: { Rules: [{ ObjectOwnership: BucketOwnerEnforced }] }
+
+  AccessLogBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AccessLogBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowAlbLogDelivery
+            Effect: Allow
+            Principal: { Service: logdelivery.elasticloadbalancing.amazonaws.com }
+            Action: s3:PutObject
+            Resource: !Sub "${AccessLogBucket.Arn}/alb/AWSLogs/${AWS::AccountId}/*"
+          - Sid: AllowAlbAclCheck
+            Effect: Allow
+            Principal: { Service: logdelivery.elasticloadbalancing.amazonaws.com }
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt AccessLogBucket.Arn
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt AccessLogBucket.Arn, !Sub "${AccessLogBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  CloudTrailBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-cloudtrail-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      VersioningConfiguration: { Status: Enabled }
+      LifecycleConfiguration:
+        Rules:
+          - Id: RetainAudit
+            Status: Enabled
+            Transitions: [{ StorageClass: STANDARD_IA, TransitionInDays: 30 }]
+            ExpirationInDays: 2555
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls: { Rules: [{ ObjectOwnership: BucketOwnerEnforced }] }
+
+  CloudTrailBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref CloudTrailBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudTrailAclCheck
+            Effect: Allow
+            Principal: { Service: cloudtrail.amazonaws.com }
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt CloudTrailBucket.Arn
+            Condition: { StringEquals: { "AWS:SourceAccount": !Ref AWS::AccountId } }
+          - Sid: CloudTrailWrite
+            Effect: Allow
+            Principal: { Service: cloudtrail.amazonaws.com }
+            Action: s3:PutObject
+            Resource: !Sub "${CloudTrailBucket.Arn}/AWSLogs/${AWS::AccountId}/*"
+            Condition:
+              StringEquals:
+                "s3:x-amz-acl": bucket-owner-full-control
+                "AWS:SourceAccount": !Ref AWS::AccountId
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: s3:*
+            Resource: [!GetAtt CloudTrailBucket.Arn, !Sub "${CloudTrailBucket.Arn}/*"]
+            Condition: { Bool: { "aws:SecureTransport": "false" } }
+
+  AuditTrail:
+    Type: AWS::CloudTrail::Trail
+    DependsOn: CloudTrailBucketPolicy
+    Properties:
+      TrailName: !Sub "${EnvironmentName}-audit"
+      S3BucketName: !Ref CloudTrailBucket
+      EnableLogFileValidation: true
+      IncludeGlobalServiceEvents: true
+      IsLogging: true
+      IsMultiRegionTrail: true
+      EventSelectors:
+        - IncludeManagementEvents: true
+          ReadWriteType: All
+
+  GuardDutyDetector:
+    Type: AWS::GuardDuty::Detector
+    Properties:
+      Enable: true
+      FindingPublishingFrequency: FIFTEEN_MINUTES
+
+  SecurityHub:
+    Type: AWS::SecurityHub::Hub
+    Properties:
+      AutoEnableControls: true
+      EnableDefaultStandards: true
+
+  WafLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "aws-waf-logs-${EnvironmentName}"
+      RetentionInDays: 90
+
+  WebAcl:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "${EnvironmentName}-api"
+      Scope: REGIONAL
+      DefaultAction: { Allow: {} }
+      VisibilityConfig:
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${EnvironmentName}-api-waf"
+        SampledRequestsEnabled: true
+      Rules:
+        - Name: AllowKpPayWebhooks
+          Priority: 1
+          Action: { Allow: {} }
+          Statement:
+            AndStatement:
+              Statements:
+                - IPSetReferenceStatement:
+                    Arn: !GetAtt KpPayWebhookIpSet.Arn
+                - ByteMatchStatement:
+                    FieldToMatch: { UriPath: {} }
+                    PositionalConstraint: STARTS_WITH
+                    SearchString: /api/webhooks/kp-pay/
+                    TextTransformations:
+                      - { Priority: 0, Type: NONE }
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: allow-kp-pay-webhooks
+            SampledRequestsEnabled: true
+        - Name: AWSCommonRules
+          Priority: 10
+          OverrideAction: { None: {} }
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: common-rules
+            SampledRequestsEnabled: true
+        - Name: AWSKnownBadInputs
+          Priority: 20
+          OverrideAction: { None: {} }
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: known-bad-inputs
+            SampledRequestsEnabled: true
+        - Name: AWSIpReputation
+          Priority: 30
+          OverrideAction: { None: {} }
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: ip-reputation
+            SampledRequestsEnabled: true
+        - Name: PerIpRateLimit
+          Priority: 40
+          Action: { Block: {} }
+          Statement:
+            RateBasedStatement:
+              AggregateKeyType: IP
+              Limit: 2000
+              ScopeDownStatement:
+                NotStatement:
+                  Statement:
+                    ByteMatchStatement:
+                      FieldToMatch: { UriPath: {} }
+                      PositionalConstraint: STARTS_WITH
+                      SearchString: /api/webhooks/kp-pay/
+                      TextTransformations:
+                        - { Priority: 0, Type: NONE }
+          VisibilityConfig:
+            CloudWatchMetricsEnabled: true
+            MetricName: per-ip-rate-limit
+            SampledRequestsEnabled: true
+
+  KpPayWebhookIpSet:
+    Type: AWS::WAFv2::IPSet
+    Properties:
+      Name: !Sub "${EnvironmentName}-kp-pay-webhook"
+      Description: Korea Payment Systems fixed webhook sender
+      Scope: REGIONAL
+      IPAddressVersion: IPV4
+      Addresses:
+        - 112.175.152.181/32
+
+  WebAclAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Ref LoadBalancerArn
+      WebACLArn: !GetAtt WebAcl.Arn
+
+  WafLogging:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      ResourceArn: !GetAtt WebAcl.Arn
+      LogDestinationConfigs: [!GetAtt WafLogGroup.Arn]
+      RedactedFields:
+        - SingleHeader: { Name: authorization }
+        - SingleHeader: { Name: cookie }
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "${EnvironmentName}-security-financial-alerts"
+
+  Target5xxAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-target-5xx"
+      Namespace: AWS/ApplicationELB
+      MetricName: HTTPCode_Target_5XX_Count
+      Dimensions: [{ Name: LoadBalancer, Value: !Ref LoadBalancerFullName }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  UnhealthyTargetsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-unhealthy-targets"
+      Namespace: AWS/ApplicationELB
+      MetricName: UnHealthyHostCount
+      Dimensions:
+        - { Name: LoadBalancer, Value: !Ref LoadBalancerFullName }
+        - { Name: TargetGroup, Value: !Ref TargetGroupFullName }
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  RdsCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-rds-cpu-high"
+      Namespace: AWS/RDS
+      MetricName: CPUUtilization
+      Dimensions: [{ Name: DBInstanceIdentifier, Value: !Ref DatabaseIdentifier }]
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions: [!Ref AlarmTopic]
+
+  RdsMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-rds-memory-low"
+      Namespace: AWS/RDS
+      MetricName: FreeableMemory
+      Dimensions: [{ Name: DBInstanceIdentifier, Value: !Ref DatabaseIdentifier }]
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 104857600
+      ComparisonOperator: LessThanThreshold
+      AlarmActions: [!Ref AlarmTopic]
+
+  RedisEvictionsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-redis-evictions"
+      Namespace: AWS/ElastiCache
+      MetricName: Evictions
+      Dimensions: [{ Name: ReplicationGroupId, Value: !Ref RedisReplicationGroupId }]
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  ReconciliationWarningMetric:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroupName
+      FilterPattern: '{ $.msg = "Financial reconciliation completed" && $.status = "warning" }'
+      MetricTransformations:
+        - MetricNamespace: TodoPay/Financial
+          MetricName: ReconciliationWarning
+          MetricValue: "1"
+
+  DeadPaymentEventMetric:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref ApiLogGroupName
+      FilterPattern: '{ $.msg = "Payment event moved to DLQ" }'
+      MetricTransformations:
+        - MetricNamespace: TodoPay/Financial
+          MetricName: DeadPaymentEvent
+          MetricValue: "1"
+
+  FinancialIntegrityAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-financial-integrity"
+      Namespace: TodoPay/Financial
+      MetricName: ReconciliationWarning
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  DeadPaymentEventAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub "${EnvironmentName}-dead-payment-event"
+      Namespace: TodoPay/Financial
+      MetricName: DeadPaymentEvent
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+Outputs:
+  AccessLogBucketName: { Value: !Ref AccessLogBucket }
+  WebAclArn: { Value: !GetAtt WebAcl.Arn }
+  AlarmTopicArn: { Value: !Ref AlarmTopic }
+  CloudTrailName: { Value: !Ref AuditTrail }

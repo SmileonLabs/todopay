@@ -1,0 +1,12 @@
+{
+  "containerOverrides": [
+    {
+      "name": "api",
+      "command": [
+        "node",
+        "-e",
+        "const base=(process.env.KP_PAY_BASE_URL||'https://api.kp-pay.com').replace(/\\/$/,''); const response=await fetch(base+'/api/vact/withdrawGet',{method:'POST',headers:{Authorization:process.env.KP_PAY_VIRTUAL_ACCOUNT_KEY,'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify({vact:{banks:['035']}})}); const payload=await response.json().catch(()=>null); const vact=payload&&typeof payload==='object'?payload.vact:null; const items=Array.isArray(vact?.vacts)?vact.vacts:Array.isArray(vact?.accounts)?vact.accounts:[]; console.log(JSON.stringify({httpStatus:response.status,topLevelKeys:payload&&typeof payload==='object'?Object.keys(payload):[],result:payload?.result?{resultCd:payload.result.resultCd??null,resultMsg:payload.result.resultMsg??null,advanceMsg:payload.result.advanceMsg??null}:null,vactKeys:vact&&typeof vact==='object'?Object.keys(vact):[],availableCount:items.length}));"
+      ]
+    }
+  ]
+}

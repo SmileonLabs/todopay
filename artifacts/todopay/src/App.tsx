@@ -1,103 +1,19 @@
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AuthProvider } from "@/contexts/auth-context";
-import NotFound from "@/pages/not-found";
-import { Layout } from "@/components/layout";
+import { lazy, Suspense } from "react";
 
-import Login from "./pages/login";
-import Dashboard from "./pages/dashboard";
-import Withdrawals from "./pages/withdrawals";
-import Transactions from "./pages/transactions";
-import Balances from "./pages/balances";
-import Members from "./pages/members";
-import Users from "./pages/users";
-import Fees from "./pages/fees";
-import Statistics from "./pages/statistics";
-import Notices from "./pages/notices";
-import Otp from "./pages/otp";
-import Profile from "./pages/profile";
-import MemberRegister from "./pages/member-register";
-import MemberLogin from "./pages/member-login";
-import Settlement from "./pages/settlement";
-import Landing from "./pages/landing";
+const MerchantApp = lazy(() => import("./merchant-app"));
+const PlatformApp = lazy(() => import("./platform-console"));
+const PartnerApp = lazy(() => import("./partner-portal-v5"));
 
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: false,
-      staleTime: 30_000,
-    },
-  },
-});
-
-function Router() {
-  return (
-    <Switch>
-      <Route path="/login" component={Login} />
-      <Route path="/register/member" component={MemberRegister} />
-      <Route path="/member/login" component={MemberLogin} />
-
-      <Route path="/">
-        <Landing />
-      </Route>
-
-      <Route path="/dashboard">
-        <Layout><Dashboard /></Layout>
-      </Route>
-      <Route path="/withdrawals">
-        <Layout><Withdrawals /></Layout>
-      </Route>
-      <Route path="/transactions">
-        <Layout><Transactions /></Layout>
-      </Route>
-      <Route path="/balances">
-        <Layout><Balances /></Layout>
-      </Route>
-      <Route path="/settlement">
-        <Layout><Settlement /></Layout>
-      </Route>
-      <Route path="/members">
-        <Layout><Members /></Layout>
-      </Route>
-      <Route path="/users">
-        <Layout><Users /></Layout>
-      </Route>
-      <Route path="/fees">
-        <Layout><Fees /></Layout>
-      </Route>
-      <Route path="/statistics">
-        <Layout><Statistics /></Layout>
-      </Route>
-      <Route path="/notices">
-        <Layout><Notices /></Layout>
-      </Route>
-      <Route path="/otp">
-        <Layout><Otp /></Layout>
-      </Route>
-      <Route path="/profile">
-        <Layout><Profile /></Layout>
-      </Route>
-
-      <Route component={NotFound} />
-    </Switch>
-  );
+function LoadingScreen() {
+  return <div className="min-h-screen bg-background" />;
 }
 
-function App() {
+export default function App() {
+  const mode = import.meta.env.VITE_APP_MODE;
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <TooltipProvider>
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <Router />
-          </WouterRouter>
-          <Toaster />
-        </TooltipProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <Suspense fallback={<LoadingScreen />}>
+      {mode === "platform" ? <PlatformApp /> : mode === "partner" ? <PartnerApp /> : <MerchantApp />}
+    </Suspense>
   );
 }
-
-export default App;

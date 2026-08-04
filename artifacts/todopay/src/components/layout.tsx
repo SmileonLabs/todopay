@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import logo from "@/assets/logo.svg";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { useLogout } from "@workspace/api-client-react";
@@ -119,7 +119,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
         ].join(" ")}
       >
         <div className="h-16 flex items-center px-5 border-b border-sidebar-border shrink-0 justify-between">
-          <img src={logo} alt="TodoPay" className="h-[84px] w-auto brightness-0 invert" />
+          <div className="text-white">
+            <BrandWordmark className="h-auto w-40" />
+          </div>
           <button
             className="md:hidden text-muted-foreground hover:text-foreground p-1"
             onClick={() => setSidebarOpen(false)}
@@ -181,7 +183,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </Button>
-          <img src={logo} alt="TodoPay" className="h-12 w-auto md:hidden brightness-0 invert" />
+          <div className="text-white md:hidden">
+            <BrandWordmark className="h-auto w-32" />
+          </div>
           <div className="flex-1" />
           <span className="text-xs text-muted-foreground hidden sm:block">
             {ROLE_LABELS[user.role] ?? user.role} · {user.name}

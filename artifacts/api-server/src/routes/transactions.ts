@@ -2,8 +2,9 @@ import { Router } from "express";
 import { db, transactionsTable, membersTable, adminUsersTable, feeConfigsTable, balanceRecordsTable, storeBalancesTable } from "@workspace/db";
 import { eq, ilike, and, or, sql, gte, lte, inArray } from "drizzle-orm";
 import { ListTransactionsQueryParams } from "@workspace/api-zod";
-import { requireAdmin } from "../lib/auth.js";
+import { canAccessMerchant, canActOn, canManageFinance, requireAdmin } from "../lib/auth.js";
 import { getAccessibleStoreIds, getStoresUnderOrg } from "../lib/query-utils.js";
+import { writeAuditLog } from "../lib/audit.js";
 
 const router = Router();
 
@@ -113,6 +114,7 @@ router.get("/transactions", async (req, res) => {
   }
 
   const conditions = [];
+  if (caller.merchantId) conditions.push(eq(transactionsTable.merchantId, caller.merchantId));
 
   if (effectiveStoreIds !== null) {
     if (effectiveStoreIds.length === 0) { res.json({ items: [], total: 0 }); return; }
@@ -191,6 +193,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
 
   const [txCheck] = await db.select().from(transactionsTable).where(eq(transactionsTable.id, txId));
   if (!txCheck) { res.status(404).json({ error: "거래를 찾을 수 없습니다" }); return; }
+  if (txCheck.merchantId && !canAccessMerchant(caller, txCheck.merchantId)) { res.status(403).json({ error: "Forbidden" }); return; }
   if (txCheck.type !== "deposit") { res.status(400).json({ error: "입금 거래만 확인 처리할 수 있습니다" }); return; }
   if (txCheck.status !== "pending") { res.status(400).json({ error: "이미 처리된 거래입니다" }); return; }
 
@@ -200,12 +203,11 @@ router.post("/transactions/:id/confirm", async (req, res) => {
     member = m ?? null;
   }
 
-  if (caller.role === "store" && member) {
-    if (member.storeId !== caller.id) { res.status(403).json({ error: "권한이 없습니다" }); return; }
-  }
-
   const originalAmount = Number(txCheck.originalAmount);
   const storeId = member?.storeId ?? null;
+  if (!canManageFinance(caller) || !storeId || !(await canActOn(caller, storeId))) {
+    res.status(403).json({ error: "Forbidden" }); return;
+  }
 
   let depositFixedFee = 0;
   let usageFeeRate = 0;
@@ -297,6 +299,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
         balance: "0",
         description: dist.description,
         userId: dist.userId,
+        merchantId: txCheck.merchantId,
       });
     }
 
@@ -308,6 +311,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
         balance: "0",
         description: `구매 확인 - ${txCheck.trackingNumber} (입금수수료 ${depositFixedFee.toLocaleString("ko-KR")}원, 이용수수료 ${usageFeeAmount.toLocaleString("ko-KR")}원)`,
         userId: storeId,
+        merchantId: txCheck.merchantId,
       });
     }
 
@@ -315,6 +319,14 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   });
 
   if (!result) { res.status(400).json({ error: "이미 처리된 거래입니다" }); return; }
+
+  await writeAuditLog(req, {
+    actorId: caller.id,
+    action: "transaction.confirm",
+    resourceType: "transaction",
+    resourceId: txId,
+    metadata: { storeId, originalAmount, fee: totalFeeAmount },
+  });
 
   res.json({
     success: true,

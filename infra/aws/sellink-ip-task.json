@@ -1,0 +1,35 @@
+{
+  "family": "todopay-prod-sellink-ip-update",
+  "taskRoleArn": "arn:aws:iam::746491202681:role/todopay-prod-compute-TaskRole-uXTYV5TUo5oh",
+  "executionRoleArn": "arn:aws:iam::746491202681:role/todopay-prod-compute-TaskExecutionRole-SqlRP62qxwuX",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "containerDefinitions": [
+    {
+      "name": "update-ips",
+      "image": "746491202681.dkr.ecr.ap-northeast-2.amazonaws.com/todopay-migration:20260728-sellink-ipfix-v1",
+      "essential": true,
+      "command": ["pnpm", "--filter", "@workspace/db", "run", "set-merchant-allowed-ips"],
+      "environment": [
+        { "name": "MERCHANT_CODE", "value": "SELLINK_001" },
+        { "name": "MERCHANT_ALLOWED_IPS", "value": "43.202.129.164/32,3.36.170.247/32" }
+      ],
+      "secrets": [
+        {
+          "name": "DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-northeast-2:746491202681:secret:todopay-prod/runtime/database-url-vvF4ya"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/todopay-prod/migration",
+          "awslogs-region": "ap-northeast-2",
+          "awslogs-stream-prefix": "sellink-ip-update"
+        }
+      }
+    }
+  ]
+}

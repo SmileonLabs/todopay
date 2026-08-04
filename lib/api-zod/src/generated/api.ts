@@ -489,6 +489,35 @@ export const RejectWithdrawalResponse = zod.object({
 });
 
 /**
+ * @summary Mark an approved withdrawal as paid
+ */
+export const MarkWithdrawalPaidParams = zod.object({
+  id: zod.coerce.number(),
+});
+
+export const MarkWithdrawalPaidResponse = zod.object({
+  id: zod.number(),
+  trackingNumber: zod.string(),
+  amount: zod.number(),
+  fee: zod.number(),
+  totalAmount: zod.number(),
+  approvalStatus: zod.string().describe("pending | approved | rejected"),
+  withdrawalStatus: zod.string().describe("unpaid | paid"),
+  accountNumber: zod.string(),
+  accountBank: zod.string(),
+  accountHolder: zod.string(),
+  rejectReason: zod.string().nullish(),
+  memberName: zod.string().nullish(),
+  storeName: zod.string().nullish(),
+  storeId: zod.number().nullish(),
+  availableAt: zod
+    .string()
+    .nullish()
+    .describe("익일 오전 10시 KST (출금 승인 가능 시각)"),
+  createdAt: zod.string(),
+});
+
+/**
  * @summary Get withdrawal summary totals
  */
 export const GetWithdrawalSummaryResponse = zod.object({

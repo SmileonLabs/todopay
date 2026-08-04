@@ -1,5 +1,10 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { connectRedis } from "./lib/redis.js";
+import { startMerchantWebhookDispatcher } from "./lib/merchant-webhook-dispatcher.js";
+import { startPayoutSubmissionWorker } from "./lib/payout-submission-worker.js";
+import { startPaymentEventWorker } from "./lib/payment-event-worker.js";
+import { startReconciliationWorker } from "./lib/reconciliation-worker.js";
 
 const rawPort = process.env["PORT"];
 
@@ -10,16 +15,23 @@ if (!rawPort) {
 }
 
 const port = Number(rawPort);
+const host = process.env["HOST"] ?? "0.0.0.0";
 
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
+await connectRedis();
+startMerchantWebhookDispatcher();
+startPayoutSubmissionWorker();
+startPaymentEventWorker();
+startReconciliationWorker();
+
+app.listen(port, host, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
 
-  logger.info({ port }, "Server listening");
+  logger.info({ host, port }, "Server listening");
 });

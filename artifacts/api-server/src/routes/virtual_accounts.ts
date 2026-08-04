@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db, virtualAccountsTable, membersTable, adminUsersTable } from "@workspace/db";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { ListVirtualAccountsQueryParams } from "@workspace/api-zod";
-import { requireAdmin } from "../lib/auth.js";
+import { canAccessMerchant, requireAdmin } from "../lib/auth.js";
 import { getAccessibleStoreIds } from "../lib/query-utils.js";
 
 const router = Router();
@@ -18,6 +18,7 @@ router.get("/virtual-accounts", async (req, res) => {
   const offset = (page - 1) * limit;
 
   const conditions = [];
+  if (caller.merchantId) conditions.push(eq(virtualAccountsTable.merchantId, caller.merchantId));
 
   // 역할별 접근 가능한 매장 → 회원 → 가상계좌 필터링
   const accessibleStoreIds = await getAccessibleStoreIds(caller);
@@ -75,6 +76,7 @@ router.get("/virtual-accounts/:id", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.id, id));
   if (!va) { res.status(404).json({ error: "Not found" }); return; }
+  if (va.merchantId && !canAccessMerchant(caller, va.merchantId)) { res.status(403).json({ error: "Forbidden" }); return; }
 
   // 접근 권한 확인
   if (va.memberId && caller.role !== "superadmin") {

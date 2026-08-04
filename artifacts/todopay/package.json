@@ -4,9 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --config vite.config.ts --host 0.0.0.0",
-    "build": "vite build --config vite.config.ts",
-    "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
+    "dev": "vite --config vite.config.ts --host 127.0.0.1",
+    "build": "node ./scripts/build-todopay.mjs",
+    "build:merchant": "node ./scripts/build-todopay.mjs merchant",
+    "build:partner": "node ./scripts/build-todopay.mjs partner",
+    "build:platform": "node ./scripts/build-todopay.mjs platform",
+    "serve": "vite preview --config vite.config.ts --host 127.0.0.1",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {

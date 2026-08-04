@@ -541,6 +541,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/Withdrawal"
 
+  /withdrawals/{id}/pay:
+    post:
+      operationId: markWithdrawalPaid
+      tags: [withdrawals]
+      summary: Mark an approved withdrawal as paid
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Paid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Withdrawal"
+
   /withdrawals/summary:
     get:
       operationId: getWithdrawalSummary

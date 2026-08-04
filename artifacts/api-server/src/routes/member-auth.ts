@@ -1,9 +1,24 @@
 import { Router } from "express";
 import { db, membersTable, virtualAccountsTable, adminUsersTable, transactionsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
-import { simpleHash } from "../lib/auth.js";
+import crypto from "crypto";
+import { z } from "zod/v4";
+import { hashPassword, requireMember, signMemberToken, verifyPassword } from "../lib/auth.js";
+import { writeAuditLog } from "../lib/audit.js";
+import { allowRequest } from "../lib/rate-limit.js";
 
 const router = Router();
+
+const memberLoginBody = z.object({
+  loginId: z.string().trim().min(3).max(64),
+  password: z.string().min(8).max(128),
+}).strict();
+
+const depositRequestBody = z.object({
+  amount: z.coerce.number().finite().positive().min(1000).max(1_000_000_000),
+  fromBank: z.string().trim().max(60).optional(),
+  fromAccount: z.string().trim().min(4).max(64),
+}).strict();
 
 async function getMemberWithAccount(memberId: number) {
   const [member] = await db.select().from(membersTable).where(eq(membersTable.id, memberId));
@@ -13,8 +28,9 @@ async function getMemberWithAccount(memberId: number) {
 }
 
 router.get("/member/store-check", async (req, res) => {
-  const code = req.query.code as string | undefined;
-  if (!code) { res.status(400).json({ valid: false }); return; }
+  const parsed = z.object({ code: z.string().trim().min(3).max(64) }).safeParse(req.query);
+  if (!parsed.success) { res.status(400).json({ valid: false }); return; }
+  const { code } = parsed.data;
   const [store] = await db.select().from(adminUsersTable)
     .where(and(eq(adminUsersTable.loginId, code), eq(adminUsersTable.role, "store")));
   if (!store) { res.json({ valid: false }); return; }
@@ -22,9 +38,12 @@ router.get("/member/store-check", async (req, res) => {
 });
 
 router.post("/member/auth/login", async (req, res) => {
-  const { loginId, password } = req.body as { loginId?: string; password?: string };
-  if (!loginId || !password) {
-    res.status(400).json({ error: "아이디와 비밀번호를 입력해주세요" });
+  const parsed = memberLoginBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+  const { loginId, password } = parsed.data;
+
+  if (!(await allowRequest("member-login", `${req.ip ?? "unknown"}:${loginId}`, { limit: 10, windowSeconds: 15 * 60 }))) {
+    res.status(429).json({ error: "Too many login attempts" });
     return;
   }
   const [member] = await db.select().from(membersTable).where(eq(membersTable.loginId, loginId));
@@ -32,11 +51,15 @@ router.post("/member/auth/login", async (req, res) => {
     res.status(401).json({ error: "아이디 또는 비밀번호가 올바르지 않습니다" });
     return;
   }
-  if (member.passwordHash !== simpleHash(password)) {
+  if (!(await verifyPassword(password, member.passwordHash))) {
     res.status(401).json({ error: "아이디 또는 비밀번호가 올바르지 않습니다" });
     return;
   }
-  const token = Buffer.from(`m:${member.id}:${member.loginId}:${Date.now()}`).toString("base64");
+  if (!member.passwordHash.startsWith("scrypt:")) {
+    await db.update(membersTable).set({ passwordHash: await hashPassword(password) }).where(eq(membersTable.id, member.id));
+  }
+  const token = signMemberToken(member.id, member.loginId);
+  await writeAuditLog(req, { actorId: member.id, actorType: "member", action: "member.login", resourceType: "member", resourceId: member.id });
   const [account] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
   res.json({
     member: {
@@ -61,26 +84,12 @@ router.post("/member/auth/login", async (req, res) => {
 });
 
 router.get("/member/auth/me", async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    res.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-  try {
-    const decoded = Buffer.from(authHeader.replace("Bearer ", ""), "base64").toString();
-    const parts = decoded.split(":");
-    if (parts[0] !== "m") {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-    const memberId = parseInt(parts[1], 10);
-    const result = await getMemberWithAccount(memberId);
-    if (!result) {
-      res.status(401).json({ error: "Member not found" });
-      return;
-    }
-    const { member, account } = result;
-    res.json({
+  const member = await requireMember(req.headers.authorization);
+  if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
+  const result = await getMemberWithAccount(member.id);
+  if (!result) { res.status(401).json({ error: "Member not found" }); return; }
+  const { account } = result;
+  res.json({
       member: {
         id: member.id,
         loginId: member.loginId,
@@ -98,39 +107,53 @@ router.get("/member/auth/me", async (req, res) => {
             status: account.status,
           }
         : null,
-    });
-  } catch {
-    res.status(401).json({ error: "Unauthorized" });
-  }
+  });
 });
 
 async function getMemberFromToken(authHeader: string | undefined) {
-  if (!authHeader) return null;
-  try {
-    const decoded = Buffer.from(authHeader.replace("Bearer ", ""), "base64").toString();
-    const parts = decoded.split(":");
-    if (parts[0] !== "m") return null;
-    const memberId = parseInt(parts[1], 10);
-    const [member] = await db.select().from(membersTable).where(eq(membersTable.id, memberId));
-    return member ?? null;
-  } catch {
-    return null;
-  }
+  return requireMember(authHeader);
 }
 
 function generateId(prefix: string): string {
-  return `${prefix}${Date.now()}${Math.floor(Math.random() * 10000).toString().padStart(4, "0")}`;
+  return `${prefix}${crypto.randomUUID().replace(/-/g, "").slice(0, 20).toUpperCase()}`;
 }
 
 // 구매 신청 (구 입금 신청) — 회원이 가상계좌로 구매금액 입금 요청
 router.post("/member/deposit-request", async (req, res) => {
   const member = await getMemberFromToken(req.headers.authorization);
   if (!member) { res.status(401).json({ error: "Unauthorized" }); return; }
+  if (!member.merchantId || !member.storeId) {
+    res.status(409).json({ error: "회원의 가맹점 원장 매핑이 완료되지 않았습니다" }); return;
+  }
+  if (!(await allowRequest("member-deposit", `${req.ip ?? "unknown"}:${member.id}`, { limit: 10, windowSeconds: 60 }))) {
+    res.status(429).json({ error: "Too many deposit requests" }); return;
+  }
 
-  const { amount, fromBank, fromAccount } = req.body as { amount?: number; fromBank?: string; fromAccount?: string };
-  if (!amount || Number(amount) <= 0) { res.status(400).json({ error: "금액을 올바르게 입력해주세요" }); return; }
-  if (Number(amount) < 1000) { res.status(400).json({ error: "최소 구매금액은 1,000원입니다" }); return; }
-  if (!fromAccount?.trim()) { res.status(400).json({ error: "계좌번호를 입력해주세요" }); return; }
+  const parsed = depositRequestBody.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid input" }); return; }
+  const { amount, fromBank, fromAccount } = parsed.data;
+  const idempotencyKey = req.get("Idempotency-Key")?.trim() || null;
+  if (idempotencyKey && !/^[A-Za-z0-9._:-]{8,128}$/.test(idempotencyKey)) {
+    res.status(400).json({ error: "Invalid Idempotency-Key" }); return;
+  }
+
+  // A retry must return the first result instead of creating another deposit request.
+  if (idempotencyKey) {
+    const [existing] = await db.select().from(transactionsTable).where(eq(transactionsTable.idempotencyKey, idempotencyKey)).limit(1);
+    if (existing) {
+      if (existing.memberId !== member.id) { res.status(409).json({ error: "Idempotency key already used" }); return; }
+      res.status(200).json({
+        id: existing.id,
+        trackingNumber: existing.trackingNumber,
+        amount: Number(existing.amount),
+        status: existing.status,
+        fromAccount: existing.fromAccount,
+        toAccount: existing.toAccount,
+        createdAt: existing.createdAt.toISOString(),
+      });
+      return;
+    }
+  }
 
   const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
   if (!va) { res.status(400).json({ error: "발급된 가상계좌가 없습니다" }); return; }
@@ -146,20 +169,37 @@ router.post("/member/deposit-request", async (req, res) => {
     res.status(400).json({ error: "대기 중인 구매 신청이 너무 많습니다. 기존 신청 처리 후 다시 시도해주세요." }); return;
   }
 
-  const fromAccountStr = fromBank ? `${fromBank} ${fromAccount.trim()}` : fromAccount.trim();
+  const fromAccountStr = fromBank ? `${fromBank} ${fromAccount}` : fromAccount;
 
-  const [tx] = await db.insert(transactionsTable).values({
-    type: "deposit",
-    originalAmount: Number(amount).toFixed(2),
-    amount: Number(amount).toFixed(2),
-    fee: "0",
-    status: "pending",
-    fromAccount: fromAccountStr,
-    toAccount: va.accountNumber,
-    trackingNumber: generateId("DEP"),
-    pgTransactionId: generateId("PG"),
-    memberId: member.id,
-  }).returning();
+  let tx;
+  try {
+    [tx] = await db.insert(transactionsTable).values({
+      type: "deposit",
+      originalAmount: Number(amount).toFixed(2),
+      amount: Number(amount).toFixed(2),
+      fee: "0",
+      status: "pending",
+      fromAccount: fromAccountStr,
+      toAccount: va.accountNumber,
+      trackingNumber: generateId("DEP"),
+      pgTransactionId: generateId("PG"),
+      idempotencyKey,
+      memberId: member.id,
+      merchantId: member.merchantId,
+    }).returning();
+  } catch (error) {
+    // A concurrent retry can race the lookup above; return the already-created request.
+    if (idempotencyKey) {
+      const [existing] = await db.select().from(transactionsTable).where(eq(transactionsTable.idempotencyKey, idempotencyKey)).limit(1);
+      if (existing?.memberId === member.id) {
+        res.status(200).json({ id: existing.id, trackingNumber: existing.trackingNumber, amount: Number(existing.amount), status: existing.status, fromAccount: existing.fromAccount, toAccount: existing.toAccount, createdAt: existing.createdAt.toISOString() });
+        return;
+      }
+    }
+    throw error;
+  }
+
+  await writeAuditLog(req, { actorId: member.id, actorType: "member", action: "deposit.request", resourceType: "transaction", resourceId: tx.id, metadata: { amount: Number(amount) } });
 
   res.status(201).json({
     id: tx.id,

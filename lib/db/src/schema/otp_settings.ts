@@ -8,6 +8,8 @@ export const otpSettingsTable = pgTable("otp_settings", {
   useOtpForDeposit: boolean("use_otp_for_deposit").notNull().default(false),
   useOtpForWithdrawal: boolean("use_otp_for_withdrawal").notNull().default(false),
   otpSecret: text("otp_secret"),
+  verifiedAt: timestamp("verified_at"),
+  lastUsedStep: integer("last_used_step"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

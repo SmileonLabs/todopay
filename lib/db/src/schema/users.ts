@@ -11,6 +11,8 @@ export const adminUsersTable = pgTable("admin_users", {
   permission: text("permission").notNull().default("admin"), // readonly | admin | finance
   isActive: boolean("is_active").notNull().default(true),
   useOtp: boolean("use_otp").notNull().default(false),
+  sessionVersion: integer("session_version").notNull().default(0),
+  merchantId: integer("merchant_id"), // null only for TodoPay platform operators
   parentId: integer("parent_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
