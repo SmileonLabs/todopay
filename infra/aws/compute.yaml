@@ -131,6 +131,11 @@ Resources:
             - { Name: PAYMENT_EVENT_WORKER_ENABLED, Value: "true" }
             - { Name: PAYMENT_EVENT_WORKER_INTERVAL_MS, Value: "500" }
             - { Name: PAYMENT_EVENT_WORKER_CONCURRENCY, Value: "5" }
+            # New payment-intent workflows remain disabled until KPPay trackId
+            # registration is validated with a controlled real transaction.
+            - { Name: PAYMENT_INTENT_PG_TRACK_BINDING_ENABLED, Value: "false" }
+            - { Name: PAYMENT_INTENT_MERCHANT_WEBHOOK_ENABLED, Value: "false" }
+            - { Name: PAYMENT_INTENT_EXPIRY_WORKER_ENABLED, Value: "false" }
             - { Name: RECONCILIATION_WORKER_ENABLED, Value: "true" }
             - { Name: RECONCILIATION_INTERVAL_MS, Value: "900000" }
             - { Name: REQUIRE_FINANCE_MFA, Value: "true" }

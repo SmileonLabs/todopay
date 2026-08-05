@@ -6,6 +6,7 @@ const enabled: KpPayConfig = {
   virtualAccountPayKey: "virtual-key",
   payoutPayKey: "payout-key",
   enabled: true,
+  paymentIntentTrackBindingEnabled: false,
 };
 
 describe("KpPayClient", () => {
@@ -22,6 +23,17 @@ describe("KpPayClient", () => {
     const client = new KpPayClient({ ...enabled, enabled: false });
     await expect(client.requestPayout({ account: "123", bankCd: "004", amount: 10_000, trackId: "T-1", recordInfo: "TodoPay" }))
       .rejects.toBeInstanceOf(KpPayError);
+  });
+
+  it("keeps payment-intent track binding as a no-network dry run by default", () => {
+    const fetcher = vi.fn();
+    const client = new KpPayClient(enabled, fetcher);
+    expect(client.paymentIntentTrackBindingPlan("TP42-ORDER-A1-ABCDEF")).toEqual({
+      trackId: "TP42-ORDER-A1-ABCDEF",
+      mode: "dry_run",
+      providerCallExecuted: false,
+    });
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("sends payout requests with the payout key", async () => {

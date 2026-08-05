@@ -17,6 +17,7 @@ export type KpPayConfig = {
   virtualAccountPayKey: string;
   payoutPayKey: string;
   enabled: boolean;
+  paymentIntentTrackBindingEnabled: boolean;
 };
 
 export class KpPayError extends Error {
@@ -41,6 +42,9 @@ export function loadKpPayConfig(env = process.env): KpPayConfig {
     virtualAccountPayKey: env.KP_PAY_VIRTUAL_ACCOUNT_KEY ?? "",
     payoutPayKey: env.KP_PAY_PAYOUT_KEY ?? "",
     enabled: env.PAYMENT_PROVIDER_ENABLED === "true",
+    paymentIntentTrackBindingEnabled:
+      env.PAYMENT_PROVIDER_ENABLED === "true"
+      && env.PAYMENT_INTENT_PG_TRACK_BINDING_ENABLED === "true",
   };
 }
 
@@ -61,6 +65,21 @@ export class KpPayClient {
     if (!this.config.enabled) {
       throw new KpPayError("KPPay provider calls are disabled", 503);
     }
+  }
+
+  /**
+   * A no-network boundary for future payment-intent registration/update calls.
+   * Returning dry_run does not reserve or alter a KPPay virtual account.
+   */
+  paymentIntentTrackBindingPlan(trackId: string) {
+    if (!/^[-A-Za-z0-9]{1,50}$/.test(trackId)) {
+      throw new KpPayError("Invalid payment intent track ID", 400);
+    }
+    return {
+      trackId,
+      mode: this.config.paymentIntentTrackBindingEnabled ? "enabled" as const : "dry_run" as const,
+      providerCallExecuted: false,
+    };
   }
 
   private async post<T>(path: string, payKey: string, body: unknown): Promise<T & { result: z.infer<typeof providerResultSchema> }> {

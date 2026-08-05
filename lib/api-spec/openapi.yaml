@@ -32,6 +32,8 @@ tags:
     description: Notice board
   - name: otp
     description: OTP settings
+  - name: external-payment-intents
+    description: Server-to-server merchant payment intent API
 
 paths:
   /healthz:
@@ -1023,8 +1025,303 @@ paths:
               schema:
                 $ref: "#/components/schemas/OtpSettings"
 
+  /external/v1/payment-intents:
+    post:
+      operationId: createExternalPaymentIntent
+      tags: [external-payment-intents]
+      summary: Create an idempotent merchant order payment intent
+      parameters:
+        - $ref: "#/components/parameters/TodoPayApiKey"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentIntentCreateInput"
+      responses:
+        "201":
+          description: Payment intent created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "200":
+          description: Existing result returned for an identical idempotent retry
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "409":
+          description: Idempotency key or merchant order conflict
+    get:
+      operationId: getExternalPaymentIntentByMerchantOrder
+      tags: [external-payment-intents]
+      summary: Get a payment intent by merchant order ID
+      parameters:
+        - $ref: "#/components/parameters/TodoPayApiKey"
+        - name: merchantOrderId
+          in: query
+          required: true
+          schema:
+            type: string
+            maxLength: 100
+        - name: attemptNumber
+          in: query
+          required: false
+          description: When omitted, returns the latest attempt for the merchant order.
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Payment intent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "404":
+          description: Payment intent not found
+
+  /external/v1/payment-intents/{id}:
+    get:
+      operationId: getExternalPaymentIntent
+      tags: [external-payment-intents]
+      summary: Get a payment intent by TodoPay ID
+      parameters:
+        - $ref: "#/components/parameters/TodoPayApiKey"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^pi_[a-f0-9]{32}$'
+      responses:
+        "200":
+          description: Payment intent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "404":
+          description: Payment intent not found
+
+  /external/v1/payment-intents/{id}/cancel:
+    post:
+      operationId: cancelExternalPaymentIntent
+      tags: [external-payment-intents]
+      summary: Cancel an unpaid payment intent
+      parameters:
+        - $ref: "#/components/parameters/TodoPayApiKey"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^pi_[a-f0-9]{32}$'
+      responses:
+        "200":
+          description: Cancelled payment intent, or the existing cancelled result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "409":
+          description: Payment intent is no longer cancellable
+
+  /external/v1/payment-intents/{id}/member:
+    post:
+      operationId: attachExternalPaymentIntentMember
+      tags: [external-payment-intents]
+      summary: Attach an active verified TodoPay member and virtual account
+      description: Transitions only requires_member to awaiting_deposit. Repeating the same member after attachment is idempotent; a different member is rejected.
+      parameters:
+        - $ref: "#/components/parameters/TodoPayApiKey"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^pi_[a-f0-9]{32}$'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [memberId]
+              additionalProperties: false
+              properties:
+                memberId:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Member attached, or the identical established binding returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentIntent"
+        "404":
+          description: Payment intent not found in the authenticated merchant
+        "409":
+          description: Member or virtual account is not ready, a different member is already bound, or the state is not attachable
+
+webhooks:
+  paymentIntentEvent:
+    post:
+      summary: Planned signed TodoPay payment intent event callback
+      description: Delivery activation is separate from this contract. Verify the TodoPay HMAC headers against the exact raw body and deduplicate by event ID.
+      parameters:
+        - name: X-TodoPay-Event-Id
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-TodoPay-Event-Type
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-TodoPay-Timestamp
+          in: header
+          required: true
+          schema: { type: string }
+        - name: X-TodoPay-Signature
+          in: header
+          required: true
+          schema: { type: string, pattern: '^v1=[a-f0-9]{64}$' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentIntentWebhookEvent"
+      responses:
+        "200":
+          description: Event accepted or already processed
+
 components:
+  parameters:
+    TodoPayApiKey:
+      name: X-TodoPay-Api-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: '^tp_live_[A-Za-z0-9_-]{32,}$'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: '^[A-Za-z0-9._:-]+$'
   schemas:
+    PaymentIntentCreateInput:
+      type: object
+      required: [merchantOrderId, amount]
+      properties:
+        merchantOrderId:
+          type: string
+          maxLength: 100
+          pattern: '^[A-Za-z0-9._:-]+$'
+        externalCustomerId:
+          type: string
+          maxLength: 100
+        memberId:
+          type: integer
+          minimum: 1
+        attemptNumber:
+          type: integer
+          minimum: 1
+          maximum: 999999
+          default: 1
+          description: Increment only for a deliberate new payment attempt for the same merchant order.
+        amount:
+          type: string
+          description: Positive whole KRW amount. JSON numbers and fractional values are rejected.
+          pattern: '^[1-9][0-9]{0,14}$'
+        currency:
+          type: string
+          const: KRW
+          default: KRW
+        expiresAt:
+          type: string
+          format: date-time
+          description: Between 5 minutes and 30 days from creation. Defaults to 24 hours.
+        description:
+          type: string
+          maxLength: 200
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Maximum canonical JSON size is 8192 bytes. Do not include secrets or unnecessary personal data.
+      anyOf:
+        - required: [memberId]
+        - required: [externalCustomerId]
+
+    PaymentIntent:
+      type: object
+      required: [id, merchantOrderId, amount, currency, status, expiresAt, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^pi_[a-f0-9]{32}$' }
+        merchantOrderId: { type: string }
+        attemptNumber: { type: integer, minimum: 1 }
+        externalCustomerId: { type: [string, "null"] }
+        memberId: { type: [integer, "null"] }
+        amount: { type: string, pattern: '^[1-9][0-9]*$' }
+        currency: { type: string, const: KRW }
+        status:
+          type: string
+          enum: [requires_member, awaiting_deposit, processing, succeeded, amount_mismatch, expired, cancelled, reversed]
+        trackingNumber:
+          type: [string, "null"]
+          maxLength: 50
+          description: KPPay trackId derived from merchant order ID and attempt number. It is not registered with KPPay until the explicit live-binding phase.
+        expiresAt: { type: string, format: date-time }
+        virtualAccount:
+          oneOf:
+            - $ref: "#/components/schemas/PaymentIntentVirtualAccount"
+            - type: "null"
+        description: { type: [string, "null"] }
+        metadata: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    PaymentIntentVirtualAccount:
+      type: object
+      required: [bankName, accountNumber, status]
+      properties:
+        bankName: { type: string }
+        accountNumber: { type: string }
+        status: { type: string }
+
+    PaymentIntentWebhookEvent:
+      type: object
+      required: [id, type, createdAt, data]
+      properties:
+        id: { type: string }
+        type:
+          type: string
+          enum: [payment_intent.created, payment_intent.awaiting_deposit, payment_intent.succeeded, payment_intent.amount_mismatch, payment_intent.expired, payment_intent.cancelled, payment_intent.reversed]
+        createdAt: { type: string, format: date-time }
+        data:
+          type: object
+          required: [paymentIntentId, merchantOrderId, amount, currency, status, occurredAt]
+          properties:
+            paymentIntentId: { type: string }
+            merchantOrderId: { type: string }
+            externalCustomerId: { type: [string, "null"] }
+            memberId: { type: [integer, "null"] }
+            amount: { type: string, pattern: '^[1-9][0-9]*$' }
+            currency: { type: string, const: KRW }
+            status: { type: string }
+            trackingNumber: { type: [string, "null"] }
+            transactionId: { type: [integer, "null"] }
+            providerTransactionId: { type: [string, "null"] }
+            receivedAmount: { type: [string, "null"], pattern: '^[1-9][0-9]*$' }
+            occurredAt: { type: string, format: date-time }
     HealthStatus:
       type: object
       properties:

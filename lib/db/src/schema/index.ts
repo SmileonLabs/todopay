@@ -13,6 +13,7 @@ export * from "./store_balances";
 export * from "./audit_logs";
 export * from "./money_ledger";
 export * from "./payment_events";
+export * from "./payment_intents";
 export * from "./merchant_webhook_deliveries";
 export * from "./merchant_fee_configs";
 export * from "./reconciliation_runs";

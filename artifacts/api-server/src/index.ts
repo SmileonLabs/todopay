@@ -5,6 +5,7 @@ import { startMerchantWebhookDispatcher } from "./lib/merchant-webhook-dispatche
 import { startPayoutSubmissionWorker } from "./lib/payout-submission-worker.js";
 import { startPaymentEventWorker } from "./lib/payment-event-worker.js";
 import { startReconciliationWorker } from "./lib/reconciliation-worker.js";
+import { startPaymentIntentExpiryWorker } from "./lib/payment-intent-expiry-worker.js";
 
 const rawPort = process.env["PORT"];
 
@@ -26,6 +27,7 @@ startMerchantWebhookDispatcher();
 startPayoutSubmissionWorker();
 startPaymentEventWorker();
 startReconciliationWorker();
+startPaymentIntentExpiryWorker();
 
 app.listen(port, host, (err) => {
   if (err) {

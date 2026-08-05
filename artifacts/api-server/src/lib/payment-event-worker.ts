@@ -5,12 +5,16 @@ import {
   feeConfigsTable,
   membersTable,
   merchantFeeConfigsTable,
+  merchantsTable,
   merchantWebhookDeliveriesTable,
   moneyLedgerTable,
+  paymentIntentEventsTable,
+  paymentIntentsTable,
   paymentEventsTable,
   pool,
   storeBalancesTable,
   transactionsTable,
+  virtualAccountsTable,
   withdrawalsTable,
 } from "@workspace/db";
 import { and, eq, gte, isNull, sql } from "drizzle-orm";
@@ -19,6 +23,12 @@ import { writeAuditLog } from "./audit.js";
 import { logger } from "./logger.js";
 import { calculateUsageFee } from "./money.js";
 import { canApplyPayoutNotification, needsWithdrawalRefund, type WithdrawalState } from "./payment-state.js";
+import {
+  isPaymentIntentMerchantWebhookEnabled,
+  isPaymentIntentPgProcessingEnabled,
+  planPaymentIntentProviderEvent,
+} from "./payment-intent-pg-processing.js";
+import { buildPaymentIntentWebhook, type PaymentIntentWebhookType } from "./payment-intent-webhooks.js";
 
 const workerId = `payment-event-${crypto.randomUUID()}`;
 const maxAttempts = Math.max(1, Number(process.env.PAYMENT_EVENT_MAX_ATTEMPTS ?? 10));
@@ -44,6 +54,46 @@ const payoutSchema = z.object({
 }).passthrough();
 
 type PaymentEventRow = typeof paymentEventsTable.$inferSelect;
+type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function enqueuePaymentIntentWebhook(
+  tx: DbTransaction,
+  input: {
+    row: PaymentEventRow;
+    intent: typeof paymentIntentsTable.$inferSelect;
+    eventType: PaymentIntentWebhookType;
+    status: string;
+    receivedAmount: string;
+    transactionId?: number | null;
+    providerTransactionId?: string | null;
+  },
+) {
+  if (!isPaymentIntentMerchantWebhookEnabled()) return;
+  const [merchant] = await tx.select({ webhookUrl: merchantsTable.webhookUrl })
+    .from(merchantsTable).where(eq(merchantsTable.id, input.intent.merchantId)).limit(1);
+  if (!merchant?.webhookUrl) return;
+  const eventId = `tdp_evt_pi_${input.row.id}_${input.eventType.replace(/[^a-z]/g, "_")}`;
+  await tx.insert(merchantWebhookDeliveriesTable).values({
+    eventId,
+    merchantId: input.intent.merchantId,
+    eventType: input.eventType,
+    payload: buildPaymentIntentWebhook({
+      eventId,
+      eventType: input.eventType,
+      paymentIntentId: input.intent.publicId,
+      merchantOrderId: input.intent.merchantOrderId,
+      externalCustomerId: input.intent.externalCustomerId,
+      memberId: input.intent.memberId,
+      amount: input.intent.amount,
+      currency: "KRW",
+      status: input.status,
+      trackingNumber: input.intent.providerTrackingNumber,
+      transactionId: input.transactionId ?? null,
+      providerTransactionId: input.providerTransactionId ?? null,
+      receivedAmount: input.receivedAmount,
+    }),
+  }).onConflictDoNothing({ target: merchantWebhookDeliveriesTable.eventId });
+}
 
 async function claimOne(): Promise<PaymentEventRow | null> {
   const result = await pool.query<{ id: number }>(
@@ -96,8 +146,242 @@ async function finishEvent(
   }).where(eq(paymentEventsTable.id, eventId));
 }
 
+async function processPaymentIntentDeposit(
+  row: PaymentEventRow,
+  intent: typeof paymentIntentsTable.$inferSelect,
+  event: z.infer<typeof depositSchema>,
+): Promise<{ resourceId: number | null; duplicate: boolean }> {
+  const receivedAmount = String(event.amount);
+  const action = planPaymentIntentProviderEvent({
+    status: intent.status,
+    expectedAmount: intent.amount,
+    providerTrackingNumber: intent.providerTrackingNumber,
+    notificationTrackId: event.trackId,
+    notificationAmount: receivedAmount,
+    transactionType: event.trxType,
+  });
+  if (action === "duplicate") {
+    await db.transaction(async (tx) => finishEvent(tx, row.id, "duplicate", intent.merchantId));
+    return { resourceId: intent.transactionId ?? intent.id, duplicate: true };
+  }
+  if (action === "reject") throw new Error("INVALID_PAYMENT_INTENT_PROVIDER_EVENT");
+
+  let resourceId: number | null = null;
+  await db.transaction(async (tx) => {
+    if (action === "amount_mismatch") {
+      const [changed] = await tx.update(paymentIntentsTable).set({
+        status: "amount_mismatch",
+        updatedAt: new Date(),
+        version: sql`${paymentIntentsTable.version} + 1`,
+      }).where(and(
+        eq(paymentIntentsTable.id, intent.id),
+        eq(paymentIntentsTable.status, "awaiting_deposit"),
+        eq(paymentIntentsTable.providerTrackingNumber, event.trackId),
+      )).returning();
+      if (!changed) throw new Error("PAYMENT_INTENT_STATE_CONFLICT");
+      await tx.insert(paymentIntentEventsTable).values({
+        paymentIntentId: changed.id,
+        eventType: "payment_intent.amount_mismatch",
+        source: "kp_pay",
+        sourceEventId: `kp-pay:${row.id}:amount-mismatch`,
+        payload: { expectedAmount: changed.amount, receivedAmount, trackingNumber: event.trackId },
+      });
+      await enqueuePaymentIntentWebhook(tx, {
+        row, intent: changed, eventType: "payment_intent.amount_mismatch",
+        status: changed.status, receivedAmount, providerTransactionId: event.vactId,
+      });
+      await finishEvent(tx, row.id, "processed", changed.merchantId);
+      resourceId = changed.id;
+      return;
+    }
+
+    if (action === "complete") {
+      const [claimed] = await tx.update(paymentIntentsTable).set({
+        status: "processing",
+        updatedAt: new Date(),
+        version: sql`${paymentIntentsTable.version} + 1`,
+      }).where(and(
+        eq(paymentIntentsTable.id, intent.id),
+        eq(paymentIntentsTable.status, "awaiting_deposit"),
+        eq(paymentIntentsTable.amount, receivedAmount),
+        eq(paymentIntentsTable.providerTrackingNumber, event.trackId),
+      )).returning();
+      if (!claimed?.memberId || !claimed.virtualAccountId) throw new Error("PAYMENT_INTENT_STATE_CONFLICT");
+      const [[member], [account]] = await Promise.all([
+        tx.select().from(membersTable).where(and(
+          eq(membersTable.id, claimed.memberId),
+          eq(membersTable.merchantId, claimed.merchantId),
+          eq(membersTable.isActive, true),
+          eq(membersTable.isVerified, true),
+        )).limit(1),
+        tx.select().from(virtualAccountsTable).where(and(
+          eq(virtualAccountsTable.id, claimed.virtualAccountId),
+          eq(virtualAccountsTable.merchantId, claimed.merchantId),
+          eq(virtualAccountsTable.status, "active"),
+        )).limit(1),
+      ]);
+      if (!member?.storeId || !account) throw new Error("PAYMENT_INTENT_MEMBER_OR_ACCOUNT_INVALID");
+      const [[merchantFeeConfig], [legacyFeeConfig]] = await Promise.all([
+        tx.select().from(merchantFeeConfigsTable)
+          .where(eq(merchantFeeConfigsTable.merchantId, claimed.merchantId)).limit(1),
+        tx.select().from(feeConfigsTable)
+          .where(eq(feeConfigsTable.userId, member.storeId)).limit(1),
+      ]);
+      const feeConfig = merchantFeeConfig ?? legacyFeeConfig;
+      if (!feeConfig) throw new Error("MISSING_MERCHANT_FEE_CONFIG");
+      const fixedFee = Number(feeConfig.depositFee ?? 0);
+      const usageFee = calculateUsageFee(event.amount, feeConfig.usageFeeRate ?? "0");
+      const net = event.amount - fixedFee - usageFee;
+      if (net < 0) throw new Error("INVALID_FEE");
+
+      const [transaction] = await tx.insert(transactionsTable).values({
+        type: "deposit",
+        originalAmount: receivedAmount,
+        amount: String(net),
+        fee: String(fixedFee + usageFee),
+        status: "success",
+        fromAccount: "KPPAY",
+        toAccount: account.accountNumber,
+        trackingNumber: event.trackId,
+        pgTransactionId: `PI-${claimed.publicId}`,
+        providerEventId: event.vactId,
+        idempotencyKey: `payment-intent:${claimed.publicId}`,
+        memberId: claimed.memberId,
+        merchantId: claimed.merchantId,
+        paymentIntentId: claimed.id,
+        processedAt: new Date(),
+      }).returning();
+      await tx.execute(sql`
+        INSERT INTO store_balances (store_id, balance, updated_at)
+        VALUES (${member.storeId}, ${net}, NOW())
+        ON CONFLICT (store_id) DO UPDATE
+        SET balance = store_balances.balance + ${net}, updated_at = NOW()
+      `);
+      await tx.insert(moneyLedgerTable).values({
+        storeId: member.storeId,
+        merchantId: claimed.merchantId,
+        direction: "credit",
+        amount: String(net),
+        entryType: "deposit_credit",
+        referenceType: "transaction",
+        referenceId: transaction.id,
+      });
+      await tx.insert(balanceRecordsTable).values({
+        userId: member.storeId,
+        merchantId: claimed.merchantId,
+        direction: "in",
+        category: "deposit",
+        amount: String(net),
+        balance: "0",
+        description: `PG payment intent ${claimed.publicId}`,
+      });
+      const [succeeded] = await tx.update(paymentIntentsTable).set({
+        status: "succeeded",
+        transactionId: transaction.id,
+        succeededAt: new Date(),
+        updatedAt: new Date(),
+        version: sql`${paymentIntentsTable.version} + 1`,
+      }).where(and(
+        eq(paymentIntentsTable.id, claimed.id),
+        eq(paymentIntentsTable.status, "processing"),
+      )).returning();
+      if (!succeeded) throw new Error("PAYMENT_INTENT_FINALIZE_FAILED");
+      await tx.insert(paymentIntentEventsTable).values({
+        paymentIntentId: succeeded.id,
+        eventType: "payment_intent.succeeded",
+        source: "kp_pay",
+        sourceEventId: `kp-pay:${row.id}:succeeded`,
+        payload: { transactionId: transaction.id, amount: receivedAmount, trackingNumber: event.trackId },
+      });
+      await enqueuePaymentIntentWebhook(tx, {
+        row, intent: succeeded, eventType: "payment_intent.succeeded",
+        status: succeeded.status, receivedAmount, transactionId: transaction.id,
+        providerTransactionId: event.vactId,
+      });
+      await finishEvent(tx, row.id, "processed", succeeded.merchantId);
+      resourceId = transaction.id;
+      return;
+    }
+
+    if (!intent.transactionId || !intent.memberId) throw new Error("PAYMENT_INTENT_REVERSAL_MISSING_TRANSACTION");
+    const [claimed] = await tx.update(paymentIntentsTable).set({
+      status: "reversed",
+      reversedAt: new Date(),
+      updatedAt: new Date(),
+      version: sql`${paymentIntentsTable.version} + 1`,
+    }).where(and(
+      eq(paymentIntentsTable.id, intent.id),
+      eq(paymentIntentsTable.status, "succeeded"),
+      eq(paymentIntentsTable.amount, receivedAmount),
+      eq(paymentIntentsTable.providerTrackingNumber, event.trackId),
+    )).returning();
+    if (!claimed) throw new Error("PAYMENT_INTENT_STATE_CONFLICT");
+    const [[transaction], [member]] = await Promise.all([
+      tx.select().from(transactionsTable).where(and(
+        eq(transactionsTable.id, intent.transactionId),
+        eq(transactionsTable.paymentIntentId, intent.id),
+        eq(transactionsTable.status, "success"),
+      )).limit(1),
+      tx.select().from(membersTable).where(and(
+        eq(membersTable.id, intent.memberId),
+        eq(membersTable.merchantId, intent.merchantId),
+      )).limit(1),
+    ]);
+    if (!transaction || !member?.storeId) throw new Error("PAYMENT_INTENT_REVERSAL_INVALID_TRANSACTION");
+    const net = transaction.amount;
+    const [debited] = await tx.update(storeBalancesTable).set({
+      balance: sql`${storeBalancesTable.balance} - ${net}`,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(storeBalancesTable.storeId, member.storeId),
+      gte(storeBalancesTable.balance, net),
+    )).returning({ storeId: storeBalancesTable.storeId });
+    if (!debited) throw new Error("INSUFFICIENT_BALANCE_FOR_REVERSAL");
+    await tx.update(transactionsTable).set({ status: "failed", processedAt: new Date() })
+      .where(and(eq(transactionsTable.id, transaction.id), eq(transactionsTable.status, "success")));
+    await tx.insert(moneyLedgerTable).values({
+      storeId: member.storeId,
+      merchantId: intent.merchantId,
+      direction: "debit",
+      amount: net,
+      entryType: "deposit_reversal",
+      referenceType: "transaction",
+      referenceId: transaction.id,
+    }).onConflictDoNothing();
+    await tx.insert(balanceRecordsTable).values({
+      userId: member.storeId,
+      merchantId: intent.merchantId,
+      direction: "out",
+      category: "refund",
+      amount: net,
+      balance: "0",
+      description: `PG payment intent reversal ${intent.publicId}`,
+    });
+    await tx.insert(paymentIntentEventsTable).values({
+      paymentIntentId: claimed.id,
+      eventType: "payment_intent.reversed",
+      source: "kp_pay",
+      sourceEventId: `kp-pay:${row.id}:reversed`,
+      payload: { transactionId: transaction.id, amount: receivedAmount, trackingNumber: event.trackId },
+    });
+    await enqueuePaymentIntentWebhook(tx, {
+      row, intent: claimed, eventType: "payment_intent.reversed",
+      status: claimed.status, receivedAmount, transactionId: transaction.id,
+      providerTransactionId: event.vactId,
+    });
+    await finishEvent(tx, row.id, "processed", claimed.merchantId);
+    resourceId = transaction.id;
+  });
+  return { resourceId, duplicate: false };
+}
+
 async function processDeposit(row: PaymentEventRow): Promise<{ resourceId: number | null; duplicate: boolean }> {
   const event = depositSchema.parse(row.payload);
+  if (isPaymentIntentPgProcessingEnabled()) {
+    const [intent] = await db.select().from(paymentIntentsTable)
+      .where(eq(paymentIntentsTable.providerTrackingNumber, event.trackId)).limit(1);
+    if (intent) return processPaymentIntentDeposit(row, intent, event);
+  }
   let resourceId: number | null = null;
   let duplicate = false;
   await db.transaction(async (tx) => {
