@@ -30,10 +30,8 @@ import { useQueryClient } from "@tanstack/react-query";
 const BASE_URL = import.meta.env.BASE_URL ?? "/";
 
 async function deleteMember(id: number): Promise<void> {
-  const token = localStorage.getItem("todopay_token") ?? "";
   const res = await fetch(`${BASE_URL}api/members/${id}`.replace(/\/+/g, "/").replace(":/", "://"), {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok && res.status !== 204) throw new Error("삭제 실패");
 }

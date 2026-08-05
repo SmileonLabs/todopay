@@ -85,12 +85,10 @@ function FeeSimulation({ stores }: { stores: FeeItem[] }) {
     setError("");
     setResult(null);
     try {
-      const token = localStorage.getItem("todopay_token") ?? "";
       const response = await fetch("/api/internal-fees/simulate", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           storeId: Number(storeId),

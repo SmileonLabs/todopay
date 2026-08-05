@@ -1,7 +1,8 @@
 import type { Response } from "express";
+import { config } from "../config.js";
 
 export function legacyFinancialWritesEnabled(): boolean {
-  return process.env.PAYMENT_INTEGRATION_ENABLED === "true";
+  return config.paymentIntegrationEnabled;
 }
 
 export function requireLegacyFinancialWrites(res: Response): boolean {

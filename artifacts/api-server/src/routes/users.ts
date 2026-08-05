@@ -22,6 +22,7 @@ import {
 } from "../lib/organization-scope.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { enforceTotp } from "../lib/otp-protection.js";
+import { parsePositiveInteger } from "../lib/request-validation.js";
 
 const router = Router();
 
@@ -61,9 +62,13 @@ router.get("/users", async (req, res) => {
   if (!enforceCapability(caller, "organizations.read", res)) return;
 
   const parsed = ListUsersQueryParams.safeParse(req.query);
-  const params = parsed.success ? parsed.data : {};
-  const page = Number(params.page ?? 1);
-  const limit = Number(params.limit ?? 100);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid query parameters" }); return; }
+  const params = parsed.data;
+  const page = parsePositiveInteger(params.page, 1, 1_000_000);
+  const limit = parsePositiveInteger(params.limit, 100, 100);
+  if (page === null || limit === null) {
+    res.status(400).json({ error: "Invalid query parameters" }); return;
+  }
   const offset = (page - 1) * limit;
 
   const scopedIds = await getScopedUserIds(caller);
@@ -120,7 +125,7 @@ router.post("/users", async (req, res) => {
 
   const { loginId, password, name, role, permission, parentId, useOtp } = parsed.data;
 
-  if (password.length < 6) {
+  if (password.length < 8) {
     res.status(400).json({ error: "비밀번호는 6자 이상이어야 합니다" }); return;
   }
 

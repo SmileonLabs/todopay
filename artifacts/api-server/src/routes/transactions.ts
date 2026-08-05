@@ -7,6 +7,9 @@ import { requireLegacyFinancialWrites } from "../lib/integration-gate.js";
 import { getAccessibleStoreIds, getStoresUnderOrg } from "../lib/query-utils.js";
 import { calculateDirectFeeShares, feeAmountAtRate } from "../lib/fee-hierarchy.js";
 import { enforceCapability } from "../lib/access-control.js";
+import { enforceTotp } from "../lib/otp-protection.js";
+import { writeAuditLog } from "../lib/audit.js";
+import { parseDateBoundary, parsePositiveInteger } from "../lib/request-validation.js";
 
 const router = Router();
 
@@ -80,9 +83,16 @@ router.get("/transactions", async (req, res) => {
   if (!enforceCapability(caller, "financial.read", res)) return;
 
   const parsed = ListTransactionsQueryParams.safeParse(req.query);
-  const params = parsed.success ? parsed.data : {};
-  const page = Number(params.page ?? 1);
-  const limit = Number(params.limit ?? 20);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid query parameters" }); return; }
+  const params = parsed.data;
+  const page = parsePositiveInteger(params.page, 1, 1_000_000);
+  const limit = parsePositiveInteger(params.limit, 20, 100);
+  const startDate = parseDateBoundary(params.startDate);
+  const endDate = parseDateBoundary(params.endDate, true);
+  if (page === null || limit === null || startDate === null || endDate === null
+    || (startDate && endDate && startDate > endDate)) {
+    res.status(400).json({ error: "Invalid query parameters" }); return;
+  }
   const offset = (page - 1) * limit;
 
   const typedParams = params as {
@@ -129,8 +139,8 @@ router.get("/transactions", async (req, res) => {
 
   if (typedParams.type) conditions.push(eq(transactionsTable.type, typedParams.type));
   if (typedParams.status) conditions.push(eq(transactionsTable.status, typedParams.status));
-  if (typedParams.startDate) conditions.push(gte(transactionsTable.createdAt, new Date(typedParams.startDate)));
-  if (typedParams.endDate) conditions.push(lte(transactionsTable.createdAt, new Date(typedParams.endDate)));
+  if (startDate) conditions.push(gte(transactionsTable.createdAt, startDate));
+  if (endDate) conditions.push(lte(transactionsTable.createdAt, endDate));
   if (typedParams.search) {
     conditions.push(or(
       ilike(transactionsTable.trackingNumber, `%${typedParams.search}%`),
@@ -192,6 +202,7 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (!enforceCapability(caller, "financial.manage", res)) return;
+  if (!(await enforceTotp(caller, req, res, "sensitive"))) return;
 
   const txId = parseInt(req.params.id, 10);
 
@@ -373,6 +384,14 @@ router.post("/transactions/:id/confirm", async (req, res) => {
   });
 
   if (!result) { res.status(400).json({ error: "이미 처리된 거래입니다" }); return; }
+
+  await writeAuditLog(req, {
+    actorId: caller.id,
+    action: "transaction.confirm",
+    resourceType: "transaction",
+    resourceId: txId,
+    metadata: { storeId, originalAmount, totalFeeAmount, netToStore },
+  });
 
   res.json({
     success: true,

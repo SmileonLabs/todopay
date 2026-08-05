@@ -3,21 +3,18 @@ import { db, adminUsersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { redis } from "./redis.js";
 import { allowRequest, resetRequest } from "./rate-limit.js";
+import { config } from "../config.js";
 
-const configuredSecret = process.env.SESSION_SECRET;
-if (process.env.NODE_ENV === "production" && !configuredSecret) {
-  throw new Error("SESSION_SECRET must be configured in production");
-}
-const SECRET = configuredSecret ?? crypto.randomBytes(48).toString("hex");
-const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const SECRET = config.sessionSecret ?? crypto.randomBytes(48).toString("hex");
+const TOKEN_TTL_MS = config.sessionTtlMs;
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
 const KEY_LENGTH = 64;
 
 const tokenBlacklist = new Set<string>();
 const adminSessionNotBefore = new Map<number, number>();
 
-const MAX_ATTEMPTS = 10;
-const WINDOW_MS = 15 * 60 * 1000;
+const MAX_ATTEMPTS = config.loginRateLimit;
+const WINDOW_SECONDS = config.loginRateWindowSeconds;
 
 export function signToken(id: number, loginId: string): string {
   const payload = `${id}:${loginId}:${Date.now()}`;
@@ -100,7 +97,7 @@ export function verifyToken(
   const loginId = parts[1];
   const timestamp = parseInt(parts[2], 10);
   if (isNaN(id) || isNaN(timestamp)) return null;
-  if (Date.now() - timestamp > TOKEN_TTL_MS) return null;
+  if (Date.now() - timestamp > TOKEN_TTL_MS || timestamp > Date.now() + 60_000) return null;
 
   return { id, loginId, issuedAt: timestamp };
 }
@@ -211,7 +208,7 @@ export async function verifyPassword(password: string, storedHash: string): Prom
 export async function checkRateLimit(key: string, limit = MAX_ATTEMPTS): Promise<boolean> {
   return allowRequest("login", key, {
     limit,
-    windowSeconds: Math.ceil(WINDOW_MS / 1000),
+    windowSeconds: WINDOW_SECONDS,
   });
 }
 

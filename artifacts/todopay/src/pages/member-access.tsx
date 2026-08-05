@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-const MEMBER_TOKEN_KEY = "todopay_member_token";
 const REGISTRATION_STATE_KEY = "sellink_member_registration";
 const baseUrl = import.meta.env.BASE_URL ?? "/";
 const api = (path: string) => `${baseUrl}${path}`.replace(/\/+/g, "/").replace(":/", "://");
@@ -132,12 +131,11 @@ export default function MemberAccess() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(login),
       });
-      const result = await body<{ token?: string }>(response);
-      if (!response.ok || !result.token) {
+      const result = await body<object>(response);
+      if (!response.ok) {
         setError(result.error ?? "로그인에 실패했습니다.");
         return;
       }
-      localStorage.setItem(MEMBER_TOKEN_KEY, result.token);
       window.location.assign(api("member/portal"));
     } catch {
       setError("서버에 연결할 수 없습니다.");

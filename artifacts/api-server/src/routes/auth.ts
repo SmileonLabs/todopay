@@ -14,6 +14,7 @@ import {
 import { capabilitiesForUser } from "../lib/access-control.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { isFinancialScopeReady } from "../lib/financial-scope.js";
+import { config } from "../config.js";
 
 const router = Router();
 
@@ -24,6 +25,10 @@ router.post("/auth/login", async (req, res) => {
     return;
   }
   const { loginId, password } = parsed.data;
+  if (loginId.length < 1 || loginId.length > 100 || password.length < 1 || password.length > 128) {
+    res.status(400).json({ error: "Invalid input" });
+    return;
+  }
 
   const requestIp = (req.ip ?? "unknown").replace(/^::ffff:/, "");
   const [accountAllowed, ipAllowed] = await Promise.all([
@@ -57,6 +62,13 @@ router.post("/auth/login", async (req, res) => {
   }
 
   const token = signToken(user.id, user.loginId);
+  res.cookie(config.adminSessionCookieName, token, {
+    httpOnly: true,
+    secure: config.isProduction,
+    sameSite: "strict",
+    path: "/",
+    maxAge: config.sessionTtlMs,
+  });
   const parent = user.parentId
     ? await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, user.parentId)).then(r => r[0])
     : null;
@@ -77,7 +89,6 @@ router.post("/auth/login", async (req, res) => {
       capabilities: capabilitiesForUser(user),
       financialScopeReady,
     },
-    token,
   });
   await writeAuditLog(req, {
     actorId: user.id,
@@ -90,6 +101,12 @@ router.post("/auth/login", async (req, res) => {
 router.post("/auth/logout", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization, { checkActive: false });
   await invalidateToken(req.headers.authorization);
+  res.clearCookie(config.adminSessionCookieName, {
+    httpOnly: true,
+    secure: config.isProduction,
+    sameSite: "strict",
+    path: "/",
+  });
   if (caller) {
     await writeAuditLog(req, {
       actorId: caller.id,

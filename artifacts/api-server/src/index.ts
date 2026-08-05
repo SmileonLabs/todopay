@@ -1,28 +1,15 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { connectRedis } from "./lib/redis.js";
-
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+import { config } from "./config.js";
 
 await connectRedis();
 
-app.listen(port, (err) => {
+app.listen(config.port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
 
-  logger.info({ port }, "Server listening");
+  logger.info({ port: config.port }, "Server listening");
 });

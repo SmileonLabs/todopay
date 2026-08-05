@@ -5,11 +5,13 @@ import { ListMembersQueryParams, CreateMemberBody, UpdateMemberBody, UpdateMembe
 import { hashPassword, requireAdmin } from "../lib/auth.js";
 import { getAccessibleStoreIds } from "../lib/query-utils.js";
 import { enforceCapability } from "../lib/access-control.js";
+import { config } from "../config.js";
+import { parsePositiveInteger } from "../lib/request-validation.js";
 
 const router = Router();
 
 function paymentIntegrationEnabled(): boolean {
-  return process.env.PAYMENT_INTEGRATION_ENABLED === "true";
+  return config.paymentIntegrationEnabled;
 }
 
 function paymentIntegrationUnavailable(res: import("express").Response): void {
@@ -91,8 +93,11 @@ router.get("/members/register-link", async (req, res) => {
   const caller = await requireAdmin(req.headers.authorization);
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (!enforceCapability(caller, "members.read", res)) return;
-  const baseUrl = process.env.REPLIT_DOMAINS?.split(",")[0] ?? "localhost";
-  res.json({ url: `https://${baseUrl}/register/member` });
+  if (!config.publicAppUrl) {
+    res.status(503).json({ error: "PUBLIC_APP_URL is not configured" });
+    return;
+  }
+  res.json({ url: `${config.publicAppUrl}/register/member` });
 });
 
 router.get("/members", async (req, res) => {
@@ -101,9 +106,13 @@ router.get("/members", async (req, res) => {
   if (!enforceCapability(caller, "members.read", res)) return;
 
   const parsed = ListMembersQueryParams.safeParse(req.query);
-  const params = parsed.success ? parsed.data : {};
-  const page = Number(params.page ?? 1);
-  const limit = Number(params.limit ?? 20);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid query parameters" }); return; }
+  const params = parsed.data;
+  const page = parsePositiveInteger(params.page, 1, 1_000_000);
+  const limit = parsePositiveInteger(params.limit, 20, 100);
+  if (page === null || limit === null) {
+    res.status(400).json({ error: "Invalid query parameters" }); return;
+  }
   const offset = (page - 1) * limit;
 
   const accessibleStoreIds = await getAccessibleStoreIds(caller);

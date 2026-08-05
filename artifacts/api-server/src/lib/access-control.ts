@@ -21,6 +21,7 @@ export const CAPABILITIES = [
 
 export type Capability = typeof CAPABILITIES[number];
 type Permission = "readonly" | "admin" | "finance";
+const KNOWN_ROLES = new Set(["superadmin", "hq", "distributor", "agency", "store"]);
 
 const READ_CAPABILITIES: Capability[] = [
   "financial.read",
@@ -52,14 +53,15 @@ const PERMISSION_CAPABILITIES: Record<Permission, ReadonlySet<Capability>> = {
 };
 
 function normalizedPermission(permission: string): Permission {
-  return permission === "readonly" || permission === "finance"
+  return permission === "admin" || permission === "finance"
     ? permission
-    : "admin";
+    : "readonly";
 }
 
 export function capabilitiesForUser(
   user: Pick<AdminUser, "role" | "permission">,
 ): Capability[] {
+  if (!KNOWN_ROLES.has(user.role)) return [];
   if (user.role === "superadmin") return [...CAPABILITIES];
   let capabilities = [
     ...PERMISSION_CAPABILITIES[normalizedPermission(user.permission)],

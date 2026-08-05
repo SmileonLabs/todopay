@@ -10,7 +10,6 @@ import {
   History, ChevronRight, AlertCircle, CheckCircle2, ShoppingCart,
 } from "lucide-react";
 
-const MEMBER_TOKEN_KEY = "todopay_member_token";
 const BANKS = ["국민은행", "신한은행", "우리은행", "하나은행", "기업은행", "농협은행", "카카오뱅크", "토스뱅크"];
 
 const baseUrl = import.meta.env.BASE_URL ?? "/";
@@ -34,7 +33,7 @@ const STATUS_CLASS: Record<string, string> = {
 
 type Tab = "account" | "purchase" | "history";
 
-function Portal({ session, token, onLogout, onSessionRefresh }: { session: MemberSession; token: string; onLogout: () => void; onSessionRefresh: () => Promise<void> }) {
+function Portal({ session, onLogout, onSessionRefresh }: { session: MemberSession; onLogout: () => void; onSessionRefresh: () => Promise<void> }) {
   const { member, account } = session;
   const [tab, setTab] = useState<Tab>("account");
   const [copied, setCopied] = useState(false);
@@ -66,12 +65,12 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
   const loadPurchases = useCallback(async () => {
     setPurchasesLoading(true);
     try {
-      const res = await fetch(api("api/member/deposits"), { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(api("api/member/deposits"));
       if (res.ok) setPurchases(await res.json() as PurchasesResponse);
     } finally {
       setPurchasesLoading(false);
     }
-  }, [token]);
+  }, []);
 
   useEffect(() => {
     if (tab === "history") {
@@ -90,7 +89,7 @@ function Portal({ session, token, onLogout, onSessionRefresh }: { session: Membe
     try {
       const res = await fetch(api("api/member/deposit-request"), {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: num, fromBank, fromAccount: fromAccount.replace(/\D/g, "") }),
       });
       const data = await res.json() as PurchaseItem & { error?: string };
@@ -374,7 +373,6 @@ async function readRegisterResponse(res: Response): Promise<RegisterResponse> {
 export default function MemberLogin() {
   const [mode, setMode] = useState<AuthMode>("login");
   const [session, setSession] = useState<MemberSession | null>(null);
-  const [token, setToken] = useState<string>(() => localStorage.getItem(MEMBER_TOKEN_KEY) ?? "");
 
   // 로그인 폼
   const [loginId, setLoginId] = useState("");
@@ -390,20 +388,14 @@ export default function MemberLogin() {
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccess, setRegSuccess] = useState(false);
 
-  useEffect(() => {
-    if (!token) window.location.replace(api("member/login"));
-  }, [token]);
-
-  const loadSession = useCallback(async (t: string) => {
+  const loadSession = useCallback(async () => {
     try {
-      const res = await fetch(api("api/member/auth/me"), { headers: { Authorization: `Bearer ${t}` } });
+      const res = await fetch(api("api/member/auth/me"));
       if (res.ok) {
         const data = await res.json() as MemberSession;
         setSession(data);
       } else {
         setSession(null);
-        setToken("");
-        localStorage.removeItem(MEMBER_TOKEN_KEY);
       }
     } catch {
       setSession(null);
@@ -411,8 +403,8 @@ export default function MemberLogin() {
   }, []);
 
   useEffect(() => {
-    if (token) void loadSession(token);
-  }, [token, loadSession]);
+    void loadSession();
+  }, [loadSession]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -425,11 +417,8 @@ export default function MemberLogin() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ loginId: loginId.trim(), password }),
       });
-      const data = await res.json() as MemberSession & { token?: string; error?: string };
+      const data = await res.json() as MemberSession & { error?: string };
       if (!res.ok) { setLoginError(data.error ?? "로그인에 실패했습니다"); return; }
-      const t = data.token ?? "";
-      localStorage.setItem(MEMBER_TOKEN_KEY, t);
-      setToken(t);
       setSession({ member: data.member, account: data.account });
     } catch {
       setLoginError("서버와 연결할 수 없습니다.");
@@ -480,9 +469,8 @@ export default function MemberLogin() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem(MEMBER_TOKEN_KEY);
-    setToken("");
+  const handleLogout = async () => {
+    await fetch(api("api/member/auth/logout"), { method: "POST" }).catch(() => undefined);
     setSession(null);
     window.location.assign(api("member/login"));
   };
@@ -491,9 +479,8 @@ export default function MemberLogin() {
     return (
       <Portal
         session={session}
-        token={token}
         onLogout={handleLogout}
-        onSessionRefresh={() => loadSession(token)}
+        onSessionRefresh={loadSession}
       />
     );
   }

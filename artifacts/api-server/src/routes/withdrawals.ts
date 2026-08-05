@@ -8,6 +8,8 @@ import { getAccessibleStoreIds, getMemberIdsForStores } from "../lib/query-utils
 import { requireLegacyFinancialWrites } from "../lib/integration-gate.js";
 import { enforceCapability } from "../lib/access-control.js";
 import { enforceTotp } from "../lib/otp-protection.js";
+import { writeAuditLog } from "../lib/audit.js";
+import { parseDateBoundary, parsePositiveInteger } from "../lib/request-validation.js";
 
 const router = Router();
 
@@ -175,9 +177,16 @@ router.get("/withdrawals", async (req, res) => {
   if (!enforceCapability(caller, "financial.read", res)) return;
 
   const parsed = ListWithdrawalsQueryParams.safeParse(req.query);
-  const params = parsed.success ? parsed.data : {};
-  const page = Number(params.page ?? 1);
-  const limit = Number(params.limit ?? 20);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid query parameters" }); return; }
+  const params = parsed.data;
+  const page = parsePositiveInteger(params.page, 1, 1_000_000);
+  const limit = parsePositiveInteger(params.limit, 20, 100);
+  const startDate = parseDateBoundary(params.startDate);
+  const endDate = parseDateBoundary(params.endDate, true);
+  if (page === null || limit === null || startDate === null || endDate === null
+    || (startDate && endDate && startDate > endDate)) {
+    res.status(400).json({ error: "Invalid query parameters" }); return;
+  }
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -185,8 +194,8 @@ router.get("/withdrawals", async (req, res) => {
   if (scope) conditions.push(scope);
   if (params.approvalStatus) conditions.push(eq(withdrawalsTable.approvalStatus, params.approvalStatus));
   if (params.withdrawalStatus) conditions.push(eq(withdrawalsTable.withdrawalStatus, params.withdrawalStatus));
-  if (params.startDate) conditions.push(gte(withdrawalsTable.createdAt, new Date(params.startDate)));
-  if (params.endDate) conditions.push(lte(withdrawalsTable.createdAt, new Date(params.endDate)));
+  if (startDate) conditions.push(gte(withdrawalsTable.createdAt, startDate));
+  if (endDate) conditions.push(lte(withdrawalsTable.createdAt, endDate));
   if (params.search) {
     conditions.push(or(
       ilike(withdrawalsTable.trackingNumber, `%${params.search}%`),
@@ -268,10 +277,10 @@ router.post("/withdrawals", async (req, res) => {
   const availableAt = getTomorrow10amKST();
   const trackingNumber = crypto.randomUUID().replace(/-/g, "").substring(0, 16).toUpperCase();
 
-  let newWithdrawal: WithdrawalRow | null = null;
+  let newWithdrawal: WithdrawalRow | undefined;
 
   try {
-    await db.transaction(async (dbtx) => {
+    newWithdrawal = await db.transaction(async (dbtx) => {
       const deductResult = await dbtx.execute(
         sql`UPDATE store_balances
             SET balance    = balance - ${Number(amount)},
@@ -297,7 +306,7 @@ router.post("/withdrawals", async (req, res) => {
         availableAt,
       }).returning();
 
-      newWithdrawal = w;
+      return w;
     });
   } catch (err) {
     if (err instanceof Error && err.message === "INSUFFICIENT_BALANCE") {
@@ -313,6 +322,13 @@ router.post("/withdrawals", async (req, res) => {
     res.status(500).json({ error: "출금 신청 처리 중 오류가 발생했습니다" }); return;
   }
 
+  await writeAuditLog(req, {
+    actorId: caller.id,
+    action: "withdrawal.request",
+    resourceType: "withdrawal",
+    resourceId: newWithdrawal.id,
+    metadata: { amount: Number(newWithdrawal.amount), storeId },
+  });
   res.status(201).json(await formatWithdrawal(newWithdrawal));
 });
 
@@ -345,9 +361,9 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
     res.status(400).json({ error: `아직 출금 가능 시간이 아닙니다. ${formatted} 이후에 승인 가능합니다` }); return;
   }
 
-  let updated: WithdrawalRow | null = null;
-
-  await db.transaction(async (dbtx) => {
+  let updated: WithdrawalRow;
+  try {
+    updated = await db.transaction(async (dbtx) => {
     const [u] = await dbtx.update(withdrawalsTable)
       .set({ approvalStatus: "approved" })
       .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
@@ -364,13 +380,22 @@ router.post("/withdrawals/:id/approve", async (req, res) => {
       userId: u.storeId ?? null,
     });
 
-    updated = u;
-  });
-
-  if (!updated) {
-    res.status(400).json({ error: "이미 처리된 출금입니다" }); return;
+    return u;
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "ALREADY_PROCESSED") {
+      res.status(409).json({ error: "이미 처리된 출금입니다" }); return;
+    }
+    throw err;
   }
 
+  await writeAuditLog(req, {
+    actorId: caller.id,
+    action: "withdrawal.approve",
+    resourceType: "withdrawal",
+    resourceId: updated.id,
+    metadata: { storeId: updated.storeId, amount: Number(updated.amount) },
+  });
   res.json(await formatWithdrawal(updated));
 });
 
@@ -395,10 +420,10 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
     return;
   }
 
-  let rejected: WithdrawalRow | null = null;
+  let rejected: WithdrawalRow | undefined;
 
   try {
-    await db.transaction(async (dbtx) => {
+    rejected = await db.transaction(async (dbtx) => {
       const [r] = await dbtx.update(withdrawalsTable)
         .set({ approvalStatus: "rejected", rejectReason: parsed.data.reason })
         .where(and(eq(withdrawalsTable.id, id), eq(withdrawalsTable.approvalStatus, "pending")))
@@ -424,7 +449,7 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
         });
       }
 
-      rejected = r;
+      return r;
     });
   } catch (err) {
     if (err instanceof Error && err.message === "ALREADY_PROCESSED") {
@@ -439,6 +464,17 @@ router.post("/withdrawals/:id/reject", async (req, res) => {
     res.status(500).json({ error: "처리 중 오류가 발생했습니다" }); return;
   }
 
+  await writeAuditLog(req, {
+    actorId: caller.id,
+    action: "withdrawal.reject",
+    resourceType: "withdrawal",
+    resourceId: rejected.id,
+    metadata: {
+      storeId: rejected.storeId,
+      amount: Number(rejected.amount),
+      reason: parsed.data.reason,
+    },
+  });
   res.json(await formatWithdrawal(rejected));
 });
 

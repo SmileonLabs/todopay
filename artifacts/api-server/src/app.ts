@@ -1,5 +1,6 @@
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -8,10 +9,11 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { receiveTodoPayWebhook } from "./routes/todopay-webhooks";
 import { allowRequest } from "./lib/rate-limit.js";
+import { config } from "./config.js";
 
 const app: Express = express();
 
-app.set("trust proxy", 1);
+app.set("trust proxy", config.trustProxyHops);
 app.disable("x-powered-by");
 app.use((req, res, next) => {
   const supplied = req.get("X-Request-Id");
@@ -41,18 +43,9 @@ app.use(
     },
   }),
 );
-const configuredOrigins = (process.env.CORS_ORIGINS ?? "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-if (process.env.NODE_ENV === "production" && configuredOrigins.length === 0) {
-  throw new Error("CORS_ORIGINS must be configured in production");
-}
-
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || configuredOrigins.includes(origin)) return callback(null, true);
+    if (!origin || config.corsOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("Origin is not allowed"));
   },
   methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
@@ -76,25 +69,43 @@ app.use((req, res, next) => {
     "script-src 'self'",
     "connect-src 'self'",
   ].join("; "));
-  if (process.env.NODE_ENV === "production") {
+  if (config.isProduction) {
     res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
   }
   next();
 });
-// The raw request bytes are required for HMAC verification. This route must
-// remain before the global JSON parser below.
-app.post(
-  "/api/webhooks/todopay",
-  express.raw({ type: "application/json", limit: "64kb" }),
-  receiveTodoPayWebhook,
-);
-app.use(express.json({ limit: "256kb" }));
-app.use(express.urlencoded({ extended: true, limit: "64kb" }));
-
+app.use(cookieParser());
+app.use("/api", (req, res, next) => {
+  const unsafeMethod = !["GET", "HEAD", "OPTIONS"].includes(req.method);
+  const origin = req.get("Origin");
+  if (unsafeMethod && origin && !config.corsOrigins.includes(origin)) {
+    res.status(403).json({ error: "Invalid request origin", code: "CSRF_ORIGIN_REJECTED" });
+    return;
+  }
+  if (req.headers.authorization) {
+    next();
+    return;
+  }
+  // Express strips the mounted `/api` prefix from req.path inside this handler.
+  const cookieName = req.path.startsWith("/member/")
+    ? config.memberSessionCookieName
+    : config.adminSessionCookieName;
+  const token = req.cookies?.[cookieName];
+  if (typeof token !== "string" || token.length === 0) {
+    next();
+    return;
+  }
+  if (unsafeMethod && !origin) {
+    res.status(403).json({ error: "Missing request origin", code: "CSRF_ORIGIN_REQUIRED" });
+    return;
+  }
+  req.headers.authorization = `Bearer ${token}`;
+  next();
+});
 app.use("/api", async (req, res, next) => {
   const requestIp = (req.ip ?? "unknown").replace(/^::ffff:/, "");
-  const allowed = await allowRequest("admin-api", requestIp, {
-    limit: 600,
+  const allowed = await allowRequest("api", requestIp, {
+    limit: config.apiRateLimit,
     windowSeconds: 60,
   });
   if (!allowed) {
@@ -106,6 +117,15 @@ app.use("/api", async (req, res, next) => {
   }
   next();
 });
+// The raw request bytes are required for HMAC verification. This route must
+// remain before the global JSON parser below.
+app.post(
+  "/api/webhooks/todopay",
+  express.raw({ type: "application/json", limit: config.webhookBodyLimit }),
+  receiveTodoPayWebhook,
+);
+app.use(express.json({ limit: config.jsonBodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: config.formBodyLimit }));
 app.use("/api", router);
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "요청한 API를 찾을 수 없습니다." });
@@ -138,7 +158,7 @@ app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
 // The Sellink console is served by the same private API task in production.
 // This keeps its browser/API origin identical and avoids a separate public API
 // domain or permissive cross-origin credential policy.
-if (process.env.NODE_ENV === "production") {
+if (config.isProduction) {
   const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
   const publicDir = path.resolve(runtimeDir, "../public");
   app.use(express.static(publicDir, { index: false, maxAge: "1h" }));

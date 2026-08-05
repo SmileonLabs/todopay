@@ -1,10 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 export async function todoPayApi<T>(path: string): Promise<T> {
-  const token = localStorage.getItem("todopay_token");
-  const response = await fetch(`/api/todopay${path}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await fetch(`/api/todopay${path}`);
   const payload = await response.json().catch(() => ({ error: "응답을 읽을 수 없습니다." }));
   if (!response.ok) {
     throw new Error(typeof payload?.error === "string" ? payload.error : "TodoPay API 요청에 실패했습니다.");

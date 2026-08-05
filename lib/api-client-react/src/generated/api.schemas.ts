@@ -37,7 +37,6 @@ export interface AdminUser {
 
 export interface AuthResponse {
   user: AdminUser;
-  token: string;
 }
 
 export interface AdminUserList {

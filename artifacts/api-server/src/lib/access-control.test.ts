@@ -20,6 +20,15 @@ describe("access control", () => {
     expect(hasCapability(user, "withdrawals.approve")).toBe(false);
   });
 
+  it("fails closed for unknown permissions and roles", () => {
+    expect(hasCapability(
+      { role: "hq", permission: "unexpected" },
+      "organizations.manage",
+    )).toBe(false);
+    expect(capabilitiesForUser({ role: "unexpected", permission: "admin" }))
+      .toEqual([]);
+  });
+
   it("separates administrative and financial mutation rights", () => {
     const admin = { role: "hq", permission: "admin" };
     const finance = { role: "hq", permission: "finance" };

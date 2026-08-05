@@ -12,6 +12,7 @@ import { eq, and, sql } from "drizzle-orm";
 import {
   checkRateLimit,
   hashPassword,
+  invalidateToken,
   isLegacyPasswordHash,
   isTokenInvalidated,
   resetRateLimit,
@@ -22,6 +23,7 @@ import {
 import { requireLegacyFinancialWrites } from "../lib/integration-gate.js";
 import { allowRequest } from "../lib/rate-limit.js";
 import { logger } from "../lib/logger.js";
+import { config } from "../config.js";
 import {
   requestTodoPay,
   TodoPayClientError,
@@ -69,6 +71,11 @@ async function getMemberWithAccount(memberId: number) {
 }
 
 router.get("/member/store-check", async (req, res) => {
+  const requestIp = (req.ip ?? "unknown").replace(/^::ffff:/, "");
+  if (!await allowRequest("member-store-check", requestIp, { limit: 60, windowSeconds: 3600 })) {
+    res.status(429).json({ valid: false });
+    return;
+  }
   const code = typeof req.query.code === "string" ? req.query.code.trim() : "";
   if (!code) { res.status(400).json({ valid: false }); return; }
   const [store] = await db.select().from(adminUsersTable)
@@ -245,7 +252,14 @@ router.post("/members/register", async (req, res) => {
 
 router.post("/member/auth/login", async (req, res) => {
   const { loginId, password } = req.body as { loginId?: string; password?: string };
-  if (!loginId || !password) {
+  if (
+    typeof loginId !== "string"
+    || loginId.length < 1
+    || loginId.length > 100
+    || typeof password !== "string"
+    || password.length < 1
+    || password.length > 128
+  ) {
     res.status(400).json({ error: "아이디와 비밀번호를 입력해주세요" });
     return;
   }
@@ -274,6 +288,13 @@ router.post("/member/auth/login", async (req, res) => {
       .where(eq(membersTable.id, member.id));
   }
   const token = signMemberToken(member.id, member.loginId);
+  res.cookie(config.memberSessionCookieName, token, {
+    httpOnly: true,
+    secure: config.isProduction,
+    sameSite: "strict",
+    path: "/",
+    maxAge: config.sessionTtlMs,
+  });
   const result = await getMemberWithAccount(member.id);
   const account = result?.account ?? null;
   res.json({
@@ -294,8 +315,18 @@ router.post("/member/auth/login", async (req, res) => {
           status: account.status,
         }
       : null,
-    token,
   });
+});
+
+router.post("/member/auth/logout", async (req, res) => {
+  await invalidateToken(req.headers.authorization);
+  res.clearCookie(config.memberSessionCookieName, {
+    httpOnly: true,
+    secure: config.isProduction,
+    sameSite: "strict",
+    path: "/",
+  });
+  res.status(204).end();
 });
 
 router.get("/member/auth/me", async (req, res) => {
@@ -311,6 +342,10 @@ router.get("/member/auth/me", async (req, res) => {
       return;
     }
     const { member, account } = result;
+    if (!member.isActive || member.loginId !== parsedToken.loginId) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
     res.json({
       member: {
         id: member.id,
@@ -344,7 +379,7 @@ async function getMemberFromToken(authHeader: string | undefined) {
 }
 
 function generateId(prefix: string): string {
-  return `${prefix}${Date.now()}${Math.floor(Math.random() * 10000).toString().padStart(4, "0")}`;
+  return `${prefix}${crypto.randomUUID().replace(/-/g, "").toUpperCase()}`;
 }
 
 // 구매 신청 (구 입금 신청) — 회원이 가상계좌로 구매금액 입금 요청

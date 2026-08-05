@@ -1,8 +1,9 @@
 import IORedis from "ioredis";
 import { logger } from "./logger.js";
+import { config } from "../config.js";
 
-const redisUrl = process.env.REDIS_URL;
-if (process.env.NODE_ENV === "production" && process.env.REQUIRE_REDIS === "true" && !redisUrl) {
+const redisUrl = config.redisUrl;
+if (config.isProduction && config.requireRedis && !redisUrl) {
   throw new Error("REDIS_URL must be set when REQUIRE_REDIS is enabled");
 }
 

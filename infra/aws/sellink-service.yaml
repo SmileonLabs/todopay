@@ -17,6 +17,15 @@ Parameters:
   RedisUrlSecretArn: { Type: String }
   TodoPayApiKeySecretArn: { Type: String }
   TodoPayWebhookSecretArn: { Type: String }
+  ConsoleDomains:
+    Type: CommaDelimitedList
+  CorsOrigins:
+    Type: String
+  PublicAppUrl: { Type: String }
+  TodoPayApiBaseUrl: { Type: String }
+  DnsRecordName: { Type: String }
+  TrustProxyHops: { Type: Number, Default: 1, MinValue: 1 }
+  ApiRateLimitPerMinute: { Type: Number, Default: 600, MinValue: 1 }
   DesiredCount: { Type: Number, Default: 2, MinValue: 2, MaxValue: 8 }
   HostedZoneId: { Type: String }
   LoadBalancerDnsName: { Type: String }
@@ -66,10 +75,7 @@ Resources:
       Priority: !Ref ListenerRulePriority
       Conditions:
         - Field: host-header
-          Values:
-            - admin.sellink.todopay.io
-            - sellpartner.link
-            - www.sellpartner.link
+          Values: !Ref ConsoleDomains
       Actions: [{ Type: forward, TargetGroupArn: !Ref TargetGroup }]
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
@@ -89,10 +95,18 @@ Resources:
           Environment:
             - { Name: NODE_ENV, Value: production }
             - { Name: PORT, Value: "8080" }
-            - { Name: CORS_ORIGINS, Value: "https://admin.sellink.todopay.io,https://sellpartner.link,https://www.sellpartner.link" }
+            - Name: CORS_ORIGINS
+              Value: !Ref CorsOrigins
+            - Name: PUBLIC_APP_URL
+              Value: !Ref PublicAppUrl
+            - Name: TRUST_PROXY_HOPS
+              Value: !Ref TrustProxyHops
+            - Name: API_RATE_LIMIT_PER_MINUTE
+              Value: !Ref ApiRateLimitPerMinute
             - { Name: PAYMENT_INTEGRATION_ENABLED, Value: "false" }
             - { Name: INTERNAL_FEE_PROCESSING_ENABLED, Value: "false" }
-            - { Name: TODOPAY_API_BASE_URL, Value: https://api.todopay.io }
+            - Name: TODOPAY_API_BASE_URL
+              Value: !Ref TodoPayApiBaseUrl
             - { Name: REQUIRE_REDIS, Value: "true" }
           Secrets:
             - { Name: DATABASE_URL, ValueFrom: !Ref DatabaseUrlSecretArn }
@@ -159,7 +173,7 @@ Resources:
     Type: AWS::Route53::RecordSet
     Properties:
       HostedZoneId: !Ref HostedZoneId
-      Name: admin.sellink.todopay.io.
+      Name: !Ref DnsRecordName
       Type: A
       AliasTarget:
         DNSName: !Ref LoadBalancerDnsName

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   adminUsersTable,
   db,
@@ -243,6 +243,20 @@ router.post("/member/registrations/:id/confirm", async (req, res) => {
     res.json({ status: "issued", memberId: session.todoPayMemberId });
     return;
   }
+  const [claimedSession] = await db.update(memberRegistrationSessionsTable).set({
+    status: "confirming",
+    updatedAt: new Date(),
+  }).where(and(
+    eq(memberRegistrationSessionsTable.id, session.id),
+    eq(memberRegistrationSessionsTable.status, "awaiting_verification"),
+  )).returning();
+  if (!claimedSession) {
+    res.status(409).json({
+      error: "Registration is already being processed or cannot be confirmed.",
+      code: "REGISTRATION_STATE_CONFLICT",
+    });
+    return;
+  }
 
   try {
     const upstream = await requestTodoPay(
@@ -288,12 +302,23 @@ router.post("/member/registrations/:id/confirm", async (req, res) => {
       await db.update(memberRegistrationSessionsTable).set({
         verificationAttempts: attempts,
         lastErrorCode: typeof mapped.body.code === "string" ? mapped.body.code : "TODOPAY_ERROR",
-        ...(mapped.body.code === "TOO_MANY_ATTEMPTS" ? { status: "failed" } : {}),
+        status: mapped.body.code === "TOO_MANY_ATTEMPTS" ? "failed" : "awaiting_verification",
         updatedAt: new Date(),
-      }).where(eq(memberRegistrationSessionsTable.id, session.id));
+      }).where(and(
+        eq(memberRegistrationSessionsTable.id, session.id),
+        eq(memberRegistrationSessionsTable.status, "confirming"),
+      ));
       res.status(mapped.status).json(mapped.body);
       return;
     }
+    await db.update(memberRegistrationSessionsTable).set({
+      status: "reconciliation_required",
+      lastErrorCode: "CONFIRMATION_RESULT_UNKNOWN",
+      updatedAt: new Date(),
+    }).where(and(
+      eq(memberRegistrationSessionsTable.id, session.id),
+      eq(memberRegistrationSessionsTable.status, "confirming"),
+    ));
     logger.error({ err: error, registrationId: session.publicId }, "member registration confirmation failed");
     res.status(502).json({ error: "가상계좌 발급 완료 상태를 저장하지 못했습니다. 다시 확인해 주세요." });
   }
@@ -309,6 +334,20 @@ router.post("/member/registrations/:id/cancel", async (req, res) => {
   }
   if (session.status === "completed") {
     res.status(409).json({ error: "이미 완료된 가입은 취소할 수 없습니다." });
+    return;
+  }
+  const [claimedSession] = await db.update(memberRegistrationSessionsTable).set({
+    status: "cancelling",
+    updatedAt: new Date(),
+  }).where(and(
+    eq(memberRegistrationSessionsTable.id, session.id),
+    inArray(memberRegistrationSessionsTable.status, ["awaiting_verification", "failed"]),
+  )).returning();
+  if (!claimedSession) {
+    res.status(409).json({
+      error: "Registration is already being processed or cannot be cancelled.",
+      code: "REGISTRATION_STATE_CONFLICT",
+    });
     return;
   }
   try {
@@ -329,10 +368,25 @@ router.post("/member/registrations/:id/cancel", async (req, res) => {
     res.status(204).end();
   } catch (error) {
     if (error instanceof TodoPayClientError) {
+      await db.update(memberRegistrationSessionsTable).set({
+        status: session.status,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(memberRegistrationSessionsTable.id, session.id),
+        eq(memberRegistrationSessionsTable.status, "cancelling"),
+      ));
       const mapped = upstreamError(error);
       res.status(mapped.status).json(mapped.body);
       return;
     }
+    await db.update(memberRegistrationSessionsTable).set({
+      status: "reconciliation_required",
+      lastErrorCode: "CANCELLATION_RESULT_UNKNOWN",
+      updatedAt: new Date(),
+    }).where(and(
+      eq(memberRegistrationSessionsTable.id, session.id),
+      eq(memberRegistrationSessionsTable.status, "cancelling"),
+    ));
     res.status(502).json({ error: "가입 인증을 취소하지 못했습니다." });
   }
 });

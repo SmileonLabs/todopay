@@ -3,6 +3,7 @@ import { db, balanceRecordsTable, transactionsTable, membersTable } from "@works
 import { eq, and, sql, gte, lte, inArray } from "drizzle-orm";
 import { requireAdmin } from "../lib/auth.js";
 import { enforceCapability } from "../lib/access-control.js";
+import { parseDateBoundary, parsePositiveInteger } from "../lib/request-validation.js";
 
 const router = Router();
 
@@ -11,7 +12,11 @@ router.get("/settlements/summary", async (req, res) => {
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (!enforceCapability(caller, "statistics.read", res)) return;
 
-  const { startDate, endDate } = req.query as { startDate?: string; endDate?: string };
+  const startDate = parseDateBoundary(req.query.startDate);
+  const endDate = parseDateBoundary(req.query.endDate, true);
+  if (startDate === null || endDate === null || (startDate && endDate && startDate > endDate)) {
+    res.status(400).json({ error: "Invalid date range" }); return;
+  }
 
   if (caller.role === "store") {
     const members = await db.select({ id: membersTable.id }).from(membersTable)
@@ -28,8 +33,8 @@ router.get("/settlements/summary", async (req, res) => {
       sql`${transactionsTable.type} = 'deposit'`,
       inArray(transactionsTable.memberId, memberIds),
     ];
-    if (startDate) conditions.push(gte(transactionsTable.createdAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(transactionsTable.createdAt, new Date(endDate)));
+    if (startDate) conditions.push(gte(transactionsTable.createdAt, startDate));
+    if (endDate) conditions.push(lte(transactionsTable.createdAt, endDate));
 
     const [result] = await db.select({
       totalDeposit: sql<string>`coalesce(sum(original_amount), 0)`,
@@ -53,8 +58,8 @@ router.get("/settlements/summary", async (req, res) => {
       eq(balanceRecordsTable.category, "payment"),
     ];
     if (userId != null) conditions.push(eq(balanceRecordsTable.userId, userId));
-    if (startDate) conditions.push(gte(balanceRecordsTable.createdAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(balanceRecordsTable.createdAt, new Date(endDate)));
+    if (startDate) conditions.push(gte(balanceRecordsTable.createdAt, startDate));
+    if (endDate) conditions.push(lte(balanceRecordsTable.createdAt, endDate));
 
     const [result] = await db.select({
       totalIncome: sql<string>`coalesce(sum(amount), 0)`,
@@ -74,11 +79,14 @@ router.get("/settlements/records", async (req, res) => {
   if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
   if (!enforceCapability(caller, "statistics.read", res)) return;
 
-  const { startDate, endDate, page: pageStr, limit: limitStr } = req.query as {
-    startDate?: string; endDate?: string; page?: string; limit?: string;
-  };
-  const page = Number(pageStr ?? 1);
-  const limit = Number(limitStr ?? 20);
+  const startDate = parseDateBoundary(req.query.startDate);
+  const endDate = parseDateBoundary(req.query.endDate, true);
+  const page = parsePositiveInteger(req.query.page, 1, 1_000_000);
+  const limit = parsePositiveInteger(req.query.limit, 20, 100);
+  if (startDate === null || endDate === null || page === null || limit === null
+    || (startDate && endDate && startDate > endDate)) {
+    res.status(400).json({ error: "Invalid query parameters" }); return;
+  }
   const offset = (page - 1) * limit;
 
   if (caller.role === "store") {
@@ -96,8 +104,8 @@ router.get("/settlements/records", async (req, res) => {
       sql`${transactionsTable.type} = 'deposit'`,
       inArray(transactionsTable.memberId, memberIds),
     ];
-    if (startDate) conditions.push(gte(transactionsTable.createdAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(transactionsTable.createdAt, new Date(endDate)));
+    if (startDate) conditions.push(gte(transactionsTable.createdAt, startDate));
+    if (endDate) conditions.push(lte(transactionsTable.createdAt, endDate));
     const where = and(...conditions);
 
     const [txs, [{ count }]] = await Promise.all([
@@ -127,8 +135,8 @@ router.get("/settlements/records", async (req, res) => {
       eq(balanceRecordsTable.category, "payment"),
     ];
     if (userId != null) conditions.push(eq(balanceRecordsTable.userId, userId));
-    if (startDate) conditions.push(gte(balanceRecordsTable.createdAt, new Date(startDate)));
-    if (endDate) conditions.push(lte(balanceRecordsTable.createdAt, new Date(endDate)));
+    if (startDate) conditions.push(gte(balanceRecordsTable.createdAt, startDate));
+    if (endDate) conditions.push(lte(balanceRecordsTable.createdAt, endDate));
     const where = and(...conditions);
 
     const [records, [{ count }]] = await Promise.all([

@@ -1,14 +1,14 @@
 import crypto from "node:crypto";
+import { config } from "../config.js";
 
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const STEP_SECONDS = 30;
 const DIGITS = 6;
 
 function encryptionKey(): Buffer {
-  const material = process.env.OTP_ENCRYPTION_KEY?.trim()
-    || process.env.SESSION_SECRET?.trim();
+  const material = config.otpEncryptionKey || config.sessionSecret;
   if (!material) {
-    if (process.env.NODE_ENV === "production") {
+    if (config.isProduction) {
       throw new Error("OTP_ENCRYPTION_KEY or SESSION_SECRET must be configured");
     }
     return crypto.createHash("sha256").update("sellink-development-only-otp-key").digest();
@@ -69,11 +69,22 @@ export function totpCode(secret: string, timestampMs = Date.now()): string {
 }
 
 export function verifyTotp(secret: string, code: string, timestampMs = Date.now()): boolean {
-  if (!/^\d{6}$/.test(code)) return false;
-  return [-1, 0, 1].some(offset => {
+  return matchingTotpStep(secret, code, timestampMs) !== null;
+}
+
+export function matchingTotpStep(
+  secret: string,
+  code: string,
+  timestampMs = Date.now(),
+): number | null {
+  if (!/^\d{6}$/.test(code)) return null;
+  const matchingSteps = [-1, 0, 1].flatMap(offset => {
     const expected = totpCode(secret, timestampMs + offset * STEP_SECONDS * 1000);
-    return crypto.timingSafeEqual(Buffer.from(code), Buffer.from(expected));
+    return crypto.timingSafeEqual(Buffer.from(code), Buffer.from(expected))
+      ? [Math.floor(timestampMs / 1000 / STEP_SECONDS) + offset]
+      : [];
   });
+  return matchingSteps.length > 0 ? Math.max(...matchingSteps) : null;
 }
 
 export function encryptTotpSecret(secret: string): string {
@@ -115,7 +126,11 @@ export function generateRecoveryCodes(): string[] {
 }
 
 export function hashRecoveryCodes(codes: string[]): string {
-  const pepper = encryptionKey();
-  return JSON.stringify(codes.map(code =>
-    crypto.createHmac("sha256", pepper).update(code.replace(/-/g, "").toUpperCase()).digest("hex")));
+  return JSON.stringify(codes.map(recoveryCodeHash));
+}
+
+export function recoveryCodeHash(code: string): string {
+  return crypto.createHmac("sha256", encryptionKey())
+    .update(code.replace(/-/g, "").toUpperCase())
+    .digest("hex");
 }

@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { db, todoPayWebhookEventsTable } from "@workspace/db";
 import { logger } from "../lib/logger.js";
 import { verifyTodoPayWebhook } from "../lib/todopay-webhook-signing.js";
+import { config } from "../config.js";
 
 const supportedEventTypes = new Set([
   "webhook.test",
@@ -39,7 +40,7 @@ function parseEnvelope(value: unknown): WebhookEnvelope | null {
 }
 
 export async function receiveTodoPayWebhook(req: Request, res: Response) {
-  const secret = process.env.TODOPAY_WEBHOOK_SECRET ?? "";
+  const secret = config.todoPayWebhookSecret ?? "";
   if (secret.length < 32) {
     logger.error("TODOPAY_WEBHOOK_SECRET is not configured");
     res.status(503).json({ error: "Webhook receiver is not configured" });

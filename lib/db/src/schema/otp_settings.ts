@@ -11,6 +11,7 @@ export const otpSettingsTable = pgTable("otp_settings", {
   pendingSecret: text("pending_secret"),
   verifiedAt: timestamp("verified_at"),
   recoveryCodesHash: text("recovery_codes_hash"),
+  lastUsedStep: integer("last_used_step"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

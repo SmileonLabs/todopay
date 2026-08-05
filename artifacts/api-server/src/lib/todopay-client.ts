@@ -1,9 +1,5 @@
 import crypto from "node:crypto";
-
-const DEFAULT_BASE_URL = "https://api.todopay.io";
-// TodoPay itself allows up to 10 seconds for KPPay. Leave enough time for the
-// upstream response so an in-flight registration is not mistaken for failure.
-const REQUEST_TIMEOUT_MS = 15_000;
+import { config } from "../config.js";
 
 export class TodoPayClientError extends Error {
   constructor(
@@ -16,17 +12,15 @@ export class TodoPayClientError extends Error {
 }
 
 function configuration() {
-  const apiKey = process.env.TODOPAY_API_KEY?.trim();
-  const baseUrl = (process.env.TODOPAY_API_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const apiKey = config.todoPayApiKey;
+  const baseUrl = config.todoPayApiBaseUrl;
   if (!apiKey) throw new TodoPayClientError("TodoPay API is not configured", 503, null);
-  if (!/^https:\/\//.test(baseUrl)) {
-    throw new TodoPayClientError("TodoPay API URL must use HTTPS", 503, null);
-  }
+  if (!baseUrl) throw new TodoPayClientError("TodoPay API URL is not configured", 503, null);
   return { apiKey, baseUrl };
 }
 
 export function isTodoPayConfigured(): boolean {
-  return Boolean(process.env.TODOPAY_API_KEY?.trim());
+  return Boolean(config.todoPayApiKey && config.todoPayApiBaseUrl);
 }
 
 export async function requestTodoPay(
@@ -45,7 +39,7 @@ export async function requestTodoPay(
       ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
     },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(config.todoPayRequestTimeoutMs),
   });
 
   const contentType = response.headers.get("content-type") ?? "";

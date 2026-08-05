@@ -114,10 +114,14 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000000
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
       responses:
         "200":
           description: List of users
@@ -263,10 +267,14 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000000
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
       responses:
         "200":
           description: List of members
@@ -406,10 +414,14 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000000
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
       responses:
         "200":
           description: List of virtual accounts
@@ -468,10 +480,14 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000000
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
       responses:
         "200":
           description: List of withdrawals
@@ -597,10 +613,14 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000000
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
       responses:
         "200":
           description: List of transactions
@@ -658,10 +678,14 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000000
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
       responses:
         "200":
           description: List of balance records
@@ -761,10 +785,14 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000000
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
       responses:
         "200":
           description: Settlement records
@@ -889,10 +917,14 @@ paths:
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 1000000
         - name: limit
           in: query
           schema:
             type: integer
+            minimum: 1
+            maximum: 100
       responses:
         "200":
           description: List of notices
@@ -1026,12 +1058,10 @@ components:
 
     AuthResponse:
       type: object
-      required: [user, token]
+      required: [user]
       properties:
         user:
           $ref: "#/components/schemas/AdminUser"
-        token:
-          type: string
 
     # Admin Users
     AdminUser:

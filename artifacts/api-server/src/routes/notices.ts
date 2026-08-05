@@ -5,6 +5,7 @@ import { ListNoticesQueryParams, CreateNoticeBody, UpdateNoticeBody } from "@wor
 import { requireAdmin } from "../lib/auth.js";
 import { enforceCapability } from "../lib/access-control.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { parsePositiveInteger } from "../lib/request-validation.js";
 
 const router = Router();
 
@@ -25,9 +26,13 @@ router.get("/notices", async (req, res) => {
   if (!enforceCapability(caller, "notices.read", res)) return;
 
   const parsed = ListNoticesQueryParams.safeParse(req.query);
-  const params = parsed.success ? parsed.data : {};
-  const page = Number(params.page ?? 1);
-  const limit = Number(params.limit ?? 20);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid query parameters" }); return; }
+  const params = parsed.data;
+  const page = parsePositiveInteger(params.page, 1, 1_000_000);
+  const limit = parsePositiveInteger(params.limit, 20, 100);
+  if (page === null || limit === null) {
+    res.status(400).json({ error: "Invalid query parameters" }); return;
+  }
   const offset = (page - 1) * limit;
 
   const [notices, [{ count }]] = await Promise.all([

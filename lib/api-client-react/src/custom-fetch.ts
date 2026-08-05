@@ -383,7 +383,7 @@ export async function customFetch<T = unknown>(
       && typeof window !== "undefined"
     ) {
       const code = window.prompt("인증 앱의 6자리 OTP 코드를 입력해주세요.")?.trim() ?? "";
-      if (/^\d{6}$/.test(code)) {
+      if (/^\d{6}$|^[A-Fa-f0-9]{5}-?[A-Fa-f0-9]{5}$/.test(code)) {
         headers.set("x-totp-code", code);
         response = await fetch(input, { ...init, method, headers });
         if (response.ok) {

@@ -45,8 +45,8 @@ export default function Login() {
         throw new Error((data as { message?: string }).message ?? "로그인 실패");
       }
 
-      const data = await res.json() as { token: string; user: import("@workspace/api-client-react").AdminUser };
-      signIn(data.token, data.user);
+      const data = await res.json() as { user: import("@workspace/api-client-react").AdminUser };
+      signIn(data.user);
       setLocation("/dashboard");
     } catch (err) {
       toast({

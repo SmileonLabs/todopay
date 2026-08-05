@@ -5,6 +5,7 @@ import { ListVirtualAccountsQueryParams } from "@workspace/api-zod";
 import { requireAdmin } from "../lib/auth.js";
 import { getAccessibleStoreIds } from "../lib/query-utils.js";
 import { enforceCapability } from "../lib/access-control.js";
+import { parsePositiveInteger } from "../lib/request-validation.js";
 
 const router = Router();
 
@@ -14,9 +15,13 @@ router.get("/virtual-accounts", async (req, res) => {
   if (!enforceCapability(caller, "financial.read", res)) return;
 
   const parsed = ListVirtualAccountsQueryParams.safeParse(req.query);
-  const params = parsed.success ? parsed.data : {};
-  const page = Number(params.page ?? 1);
-  const limit = Number(params.limit ?? 20);
+  if (!parsed.success) { res.status(400).json({ error: "Invalid query parameters" }); return; }
+  const params = parsed.data;
+  const page = parsePositiveInteger(params.page, 1, 1_000_000);
+  const limit = parsePositiveInteger(params.limit, 20, 100);
+  if (page === null || limit === null) {
+    res.status(400).json({ error: "Invalid query parameters" }); return;
+  }
   const offset = (page - 1) * limit;
 
   const conditions = [];
@@ -76,17 +81,22 @@ router.get("/virtual-accounts/:id", async (req, res) => {
   if (!enforceCapability(caller, "financial.read", res)) return;
 
   const id = parseInt(req.params.id, 10);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid id" }); return;
+  }
   const [va] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.id, id));
   if (!va) { res.status(404).json({ error: "Not found" }); return; }
 
   // 접근 권한 확인
-  if (va.memberId && caller.role !== "superadmin") {
-    const [member] = await db.select().from(membersTable).where(eq(membersTable.id, va.memberId));
-    if (member?.storeId) {
-      const accessibleStoreIds = await getAccessibleStoreIds(caller);
-      if (accessibleStoreIds !== null && !accessibleStoreIds.includes(member.storeId)) {
-        res.status(403).json({ error: "권한이 없습니다" }); return;
-      }
+  if (caller.role !== "superadmin") {
+    if (!va.memberId) { res.status(404).json({ error: "Not found" }); return; }
+    const [member] = await db.select({ storeId: membersTable.storeId })
+      .from(membersTable).where(eq(membersTable.id, va.memberId));
+    const accessibleStoreIds = await getAccessibleStoreIds(caller);
+    if (!member?.storeId
+      || accessibleStoreIds === null
+      || !accessibleStoreIds.includes(member.storeId)) {
+      res.status(404).json({ error: "Not found" }); return;
     }
   }
 

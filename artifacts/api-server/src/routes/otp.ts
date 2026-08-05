@@ -11,9 +11,10 @@ import {
   generateRecoveryCodes,
   generateTotpSecret,
   hashRecoveryCodes,
-  verifyTotp,
+  matchingTotpStep,
 } from "../lib/totp.js";
 import { writeAuditLog } from "../lib/audit.js";
+import { consumeTotp } from "../lib/otp-protection.js";
 
 const router = Router();
 
@@ -83,7 +84,8 @@ router.post("/otp/enrollment/verify", async (req, res) => {
   try { secret = decryptTotpSecret(settings.pendingSecret); } catch {
     res.status(409).json({ error: "OTP 등록 정보를 다시 생성해주세요." }); return;
   }
-  if (!verifyTotp(secret, code)) {
+  const verifiedStep = matchingTotpStep(secret, code);
+  if (verifiedStep === null) {
     res.status(400).json({ error: "OTP 코드가 일치하지 않습니다." }); return;
   }
   const recoveryCodes = generateRecoveryCodes();
@@ -93,6 +95,7 @@ router.post("/otp/enrollment/verify", async (req, res) => {
       pendingSecret: null,
       verifiedAt: new Date(),
       recoveryCodesHash: hashRecoveryCodes(recoveryCodes),
+      lastUsedStep: verifiedStep,
       updatedAt: new Date(),
     }).where(eq(otpSettingsTable.userId, caller.id));
     await tx.update(adminUsersTable).set({ useOtp: true })
@@ -151,7 +154,7 @@ router.post("/otp/verify", async (req, res) => {
   const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
   const settings = await getOrCreateSettings(caller.id);
   const secret = activeSecret(settings);
-  if (!secret || !verifyTotp(secret, code)) {
+  if (!secret || !await consumeTotp(settings, code)) {
     res.status(400).json({ error: "OTP 코드가 일치하지 않습니다." }); return;
   }
   res.json({ valid: true });
@@ -164,7 +167,7 @@ router.delete("/otp/enrollment", async (req, res) => {
   const code = typeof req.body?.code === "string" ? req.body.code.trim() : "";
   const settings = await getOrCreateSettings(caller.id);
   const secret = activeSecret(settings);
-  if (!secret || !verifyTotp(secret, code)) {
+  if (!secret || !await consumeTotp(settings, code)) {
     res.status(400).json({ error: "OTP 코드가 일치하지 않습니다." }); return;
   }
   await db.transaction(async tx => {
@@ -173,6 +176,7 @@ router.delete("/otp/enrollment", async (req, res) => {
       pendingSecret: null,
       verifiedAt: null,
       recoveryCodesHash: null,
+      lastUsedStep: null,
       useOtpForDeposit: false,
       useOtpForWithdrawal: false,
       updatedAt: new Date(),
