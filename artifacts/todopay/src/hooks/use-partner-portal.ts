@@ -11,7 +11,7 @@ import type {
 const API_BASE_URL = "https://api.todopay.io/api/external/v1";
 
 export function usePartnerPortalState() {
-  const { user, token, signOut, isLoading } = useAuth();
+  const { user, isAuthenticated, signOut, isLoading } = useAuth();
   const [overview, setOverview] = useState<Overview | null>(null);
   const [activity, setActivity] = useState<Activity | null>(null);
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -53,26 +53,40 @@ export function usePartnerPortalState() {
 
       return body;
     },
-    [token],
+    [],
   );
 
-  const load = async () => {
-    if (!token) return;
+  const load = useCallback(async () => {
+    if (!isAuthenticated || !user) return;
 
     setLoading(true);
     try {
       const [overviewResult, activityResult, deliveryResult] =
-        await Promise.all([
+        await Promise.allSettled([
           request<Overview>("/partner/overview"),
           request<Activity>("/partner/activity"),
           request<WebhookDeliveries>("/partner/webhook-deliveries"),
         ]);
-      setOverview(overviewResult);
-      setActivity(activityResult);
-      setWebhookDeliveries(deliveryResult);
-      setWebhookUrl(overviewResult.merchant.webhookUrl ?? "");
-      setAllowedIps(overviewResult.merchant.allowedIps.join(", "));
-      setError(null);
+      if (overviewResult.status === "rejected") throw overviewResult.reason;
+
+      const nextOverview = overviewResult.value;
+      setOverview(nextOverview);
+      setWebhookUrl(nextOverview.merchant.webhookUrl ?? "");
+      setAllowedIps(nextOverview.merchant.allowedIps.join(", "));
+      setActivity(
+        activityResult.status === "fulfilled" ? activityResult.value : null,
+      );
+      setWebhookDeliveries(
+        deliveryResult.status === "fulfilled" ? deliveryResult.value : null,
+      );
+      const secondaryFailures = [activityResult, deliveryResult].filter(
+        (result) => result.status === "rejected",
+      ).length;
+      setError(
+        secondaryFailures > 0
+          ? `일부 보조 정보를 불러오지 못했습니다. (${secondaryFailures}개)`
+          : null,
+      );
     } catch (err) {
       setError(
         err instanceof Error
@@ -82,11 +96,18 @@ export function usePartnerPortalState() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAuthenticated, request, user]);
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      setOverview(null);
+      setActivity(null);
+      setWebhookDeliveries(null);
+      setError(null);
+      return;
+    }
     void load();
-  }, [token]);
+  }, [isAuthenticated, load]);
 
   const saveSettings = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -257,7 +278,7 @@ export function usePartnerPortalState() {
 
   return {
     user,
-    token,
+    isAuthenticated,
     signOut,
     isLoading,
     request,

@@ -79,7 +79,6 @@ const queryClient = new QueryClient({
 function PlatformConsole() {
   const {
     user,
-    token,
     signOut,
     isLoading,
     section,

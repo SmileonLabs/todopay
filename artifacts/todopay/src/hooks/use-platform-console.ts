@@ -16,7 +16,7 @@ import type {
 } from "../platform-console-types";
 
 export function usePlatformConsole() {
-  const { user, token, signOut, isLoading } = useAuth();
+  const { user, isAuthenticated, signOut, isLoading } = useAuth();
   const [section, setSection] = useState<Section>("dashboard");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [merchants, setMerchants] = useState<Merchant[]>([]);
@@ -74,7 +74,7 @@ export function usePlatformConsole() {
       }
       return response.json() as Promise<T>;
     },
-    [token],
+    [],
   );
 
   const run = useCallback(async (work: () => Promise<void>) => {
@@ -133,7 +133,7 @@ export function usePlatformConsole() {
 
   const loadSection = useCallback(
     async (page = 1) => {
-      if (!token || !isPlatformOperator) return;
+      if (!isAuthenticated || !isPlatformOperator) return;
       await run(async () => {
         if (section === "dashboard")
           setOverview(await request<Overview>("/platform/overview"));
@@ -198,17 +198,17 @@ export function usePlatformConsole() {
       request,
       run,
       section,
-      token,
+      isAuthenticated,
     ],
   );
 
   useEffect(() => {
     void loadSection();
-  }, [section, token, isPlatformOperator]);
+  }, [section, isAuthenticated, isPlatformOperator]);
   useEffect(() => {
-    if (token && isPlatformOperator && merchants.length === 0)
+    if (isAuthenticated && isPlatformOperator && merchants.length === 0)
       void run(() => loadMerchants());
-  }, [token, isPlatformOperator]);
+  }, [isAuthenticated, isPlatformOperator]);
   useEffect(() => {
     if (selectedMerchantId && ["merchants", "credentials"].includes(section))
       void run(() => loadDetail(selectedMerchantId));
@@ -216,7 +216,6 @@ export function usePlatformConsole() {
 
   return {
     user,
-    token,
     signOut,
     isLoading,
     section,
