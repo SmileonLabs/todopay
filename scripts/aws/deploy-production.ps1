@@ -148,7 +148,17 @@ Invoke-Native docker @('build', '--target', 'runtime', '--tag', $apiImage, '.')
 Write-Host "Building $migrationImage"
 Invoke-Native docker @('build', '--target', 'migration', '--tag', $migrationImage, '.')
 
-Invoke-DockerLogin -Registry $registry -ProfileName $Profile -AwsRegion $Region
+$loginAttempts = 3
+for ($attempt = 1; $attempt -le $loginAttempts; $attempt++) {
+  try {
+    Invoke-DockerLogin -Registry $registry -ProfileName $Profile -AwsRegion $Region
+    break
+  } catch {
+    if ($attempt -eq $loginAttempts) { throw }
+    Write-Warning "ECR login attempt $attempt failed; retrying in 5 seconds."
+    Start-Sleep -Seconds 5
+  }
+}
 Invoke-Native docker @('push', $apiImage)
 Invoke-Native docker @('push', $migrationImage)
 

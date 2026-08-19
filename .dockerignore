@@ -6,6 +6,7 @@ node_modules
 .local
 attached_assets
 docs
+scripts/aws
 output
 pdf
 sellink-fresh-source
