@@ -35,28 +35,44 @@ function Get-ImageRepository([string]$Image) {
 function Invoke-DockerLogin {
   param(
     [Parameter(Mandatory = $true)][string]$Registry,
-    [Parameter(Mandatory = $true)][string]$Password
+    [Parameter(Mandatory = $true)][string]$ProfileName,
+    [Parameter(Mandatory = $true)][string]$AwsRegion
   )
 
-  # Windows PowerShell can re-encode native pipeline input, corrupting the
-  # ECR token. Write directly to stdin so the token reaches Docker unchanged.
-  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-  $startInfo.FileName = 'docker'
-  $startInfo.Arguments = "login --username AWS --password-stdin $Registry"
-  $startInfo.UseShellExecute = $false
-  $startInfo.RedirectStandardInput = $true
-  $startInfo.RedirectStandardOutput = $true
-  $startInfo.RedirectStandardError = $true
+  # Windows PowerShell can re-encode native pipeline input. Copy the AWS
+  # process' raw stdout bytes directly into Docker's stdin instead.
+  $awsStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $awsStartInfo.FileName = 'aws'
+  $awsStartInfo.Arguments = "ecr get-login-password --profile `"$ProfileName`" --region `"$AwsRegion`""
+  $awsStartInfo.UseShellExecute = $false
+  $awsStartInfo.RedirectStandardOutput = $true
+  $awsStartInfo.RedirectStandardError = $true
 
-  $process = [System.Diagnostics.Process]::Start($startInfo)
-  $process.StandardInput.WriteLine($Password.Trim())
-  $process.StandardInput.Close()
-  $stdout = $process.StandardOutput.ReadToEnd()
-  $stderr = $process.StandardError.ReadToEnd()
-  $process.WaitForExit()
-  if ($stdout) { Write-Host $stdout.TrimEnd() }
-  if ($process.ExitCode -ne 0) {
-    if ($stderr) { Write-Error $stderr.TrimEnd() }
+  $dockerStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $dockerStartInfo.FileName = 'docker'
+  $dockerStartInfo.Arguments = "login --username AWS --password-stdin `"$Registry`""
+  $dockerStartInfo.UseShellExecute = $false
+  $dockerStartInfo.RedirectStandardInput = $true
+  $dockerStartInfo.RedirectStandardOutput = $true
+  $dockerStartInfo.RedirectStandardError = $true
+
+  $awsProcess = [System.Diagnostics.Process]::Start($awsStartInfo)
+  $dockerProcess = [System.Diagnostics.Process]::Start($dockerStartInfo)
+  $awsProcess.StandardOutput.BaseStream.CopyTo($dockerProcess.StandardInput.BaseStream)
+  $dockerProcess.StandardInput.Close()
+  $awsError = $awsProcess.StandardError.ReadToEnd()
+  $dockerOutput = $dockerProcess.StandardOutput.ReadToEnd()
+  $dockerError = $dockerProcess.StandardError.ReadToEnd()
+  $awsProcess.WaitForExit()
+  $dockerProcess.WaitForExit()
+
+  if ($awsProcess.ExitCode -ne 0) {
+    if ($awsError) { Write-Error $awsError.TrimEnd() }
+    throw 'Could not obtain ECR login password.'
+  }
+  if ($dockerOutput) { Write-Host $dockerOutput.TrimEnd() }
+  if ($dockerProcess.ExitCode -ne 0) {
+    if ($dockerError) { Write-Error $dockerError.TrimEnd() }
     throw 'Docker ECR login failed.'
   }
 }
@@ -132,9 +148,7 @@ Invoke-Native docker @('build', '--target', 'runtime', '--tag', $apiImage, '.')
 Write-Host "Building $migrationImage"
 Invoke-Native docker @('build', '--target', 'migration', '--tag', $migrationImage, '.')
 
-$password = & aws ecr get-login-password --profile $Profile --region $Region
-if ($LASTEXITCODE -ne 0) { throw 'Could not obtain ECR login password.' }
-Invoke-DockerLogin -Registry $registry -Password ($password -join "`n")
+Invoke-DockerLogin -Registry $registry -ProfileName $Profile -AwsRegion $Region
 Invoke-Native docker @('push', $apiImage)
 Invoke-Native docker @('push', $migrationImage)
 
