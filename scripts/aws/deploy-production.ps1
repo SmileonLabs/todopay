@@ -39,8 +39,22 @@ function Invoke-DockerLogin {
     [Parameter(Mandatory = $true)][string]$AwsRegion
   )
 
-  # Windows PowerShell can re-encode native pipeline input. Copy the AWS
-  # process' raw stdout bytes directly into Docker's stdin instead.
+  if ($Registry -notmatch '^[a-z0-9.-]+$' -or
+      $ProfileName -notmatch '^[A-Za-z0-9+=,.@_-]+$' -or
+      $AwsRegion -notmatch '^[a-z0-9-]+$') {
+    throw 'Unsafe ECR login argument.'
+  }
+
+  if ($env:OS -eq 'Windows_NT') {
+    # Windows PowerShell 5.1 re-encodes native pipelines. cmd.exe preserves
+    # the ASCII ECR token byte-for-byte and never exposes it as an argument.
+    $command = "aws ecr get-login-password --profile $ProfileName --region $AwsRegion | docker login --username AWS --password-stdin $Registry"
+    Invoke-Native cmd.exe @('/d', '/s', '/c', $command)
+    return
+  }
+
+  # Copy the AWS process' raw stdout bytes directly into Docker's stdin on
+  # other hosts as well, avoiding shell-specific pipeline transformations.
   $awsStartInfo = [System.Diagnostics.ProcessStartInfo]::new()
   $awsStartInfo.FileName = 'aws'
   $awsStartInfo.Arguments = "ecr get-login-password --profile `"$ProfileName`" --region `"$AwsRegion`""
