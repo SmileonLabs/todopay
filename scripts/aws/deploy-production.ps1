@@ -96,7 +96,6 @@ function Deploy-ComputeStack {
     [Parameter(Mandatory = $true)][object[]]$CurrentParameters,
     [Parameter(Mandatory = $true)][string]$ApiImage,
     [Parameter(Mandatory = $true)][string]$MigrationImage,
-    [Parameter(Mandatory = $true)][string]$ChangeSetName,
     [switch]$PreviewOnly
   )
   $overrides = foreach ($parameter in $CurrentParameters) {
@@ -114,7 +113,6 @@ function Deploy-ComputeStack {
     '--capabilities', 'CAPABILITY_IAM',
     '--parameter-overrides'
   ) + $overrides + @(
-    '--change-set-name', $ChangeSetName,
     '--no-fail-on-empty-changeset',
     '--profile', $Profile,
     '--region', $Region
@@ -176,17 +174,15 @@ for ($attempt = 1; $attempt -le $loginAttempts; $attempt++) {
 Invoke-Native docker @('push', $apiImage)
 Invoke-Native docker @('push', $migrationImage)
 
-$suffix = (Get-Date -Format 'yyyyMMdd-HHmmss')
 if (-not $Execute) {
-  $changeSet = "todopay-preview-$suffix"
-  Deploy-ComputeStack -CurrentParameters $currentParameters -ApiImage $apiImage -MigrationImage $migrationImage -ChangeSetName $changeSet -PreviewOnly
-  Write-Host "Created non-executed production change set: $changeSet"
+  Deploy-ComputeStack -CurrentParameters $currentParameters -ApiImage $apiImage -MigrationImage $migrationImage -PreviewOnly
+  Write-Host 'Created a non-executed production change set.'
   Write-Host 'Review it in CloudFormation. Re-run with -Execute -ConfirmProduction to deploy.'
   exit 0
 }
 
 # Phase 1: publish only the migration task definition, then run it to completion.
-Deploy-ComputeStack -CurrentParameters $currentParameters -ApiImage $currentApiImage -MigrationImage $migrationImage -ChangeSetName "todopay-migration-$suffix"
+Deploy-ComputeStack -CurrentParameters $currentParameters -ApiImage $currentApiImage -MigrationImage $migrationImage
 
 $service = Invoke-AwsJson @('ecs', 'describe-services', '--cluster', $EnvironmentName, '--services', 'api')
 $network = $service.services[0].networkConfiguration.awsvpcConfiguration
@@ -213,7 +209,7 @@ if ($migrationContainer.exitCode -ne 0) {
 }
 
 # Phase 2: roll the API only after the migration succeeds.
-Deploy-ComputeStack -CurrentParameters $currentParameters -ApiImage $apiImage -MigrationImage $migrationImage -ChangeSetName "todopay-api-$suffix"
+Deploy-ComputeStack -CurrentParameters $currentParameters -ApiImage $apiImage -MigrationImage $migrationImage
 Invoke-Native aws @('ecs', 'wait', 'services-stable', '--cluster', $EnvironmentName, '--services', 'api', '--profile', $Profile, '--region', $Region)
 $health = Invoke-RestMethod -Uri 'https://api.todopay.io/api/healthz' -TimeoutSec 30
 if ($health.status -ne 'ok') { throw 'Production health endpoint did not return status=ok.' }
