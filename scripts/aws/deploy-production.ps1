@@ -193,12 +193,20 @@ $networkJson = @{
     assignPublicIp = [string]$network.assignPublicIp
   }
 } | ConvertTo-Json -Compress -Depth 5
-$task = Invoke-AwsJson @(
-  'ecs', 'run-task', '--cluster', $EnvironmentName,
-  '--task-definition', "$EnvironmentName-migration",
-  '--launch-type', 'FARGATE', '--count', '1',
-  '--network-configuration', $networkJson
-)
+$networkFile = Join-Path ([System.IO.Path]::GetTempPath()) "todopay-network-$([guid]::NewGuid().ToString('N')).json"
+$utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText($networkFile, $networkJson, $utf8WithoutBom)
+try {
+  $networkFileUri = 'file://' + $networkFile.Replace('\', '/')
+  $task = Invoke-AwsJson @(
+    'ecs', 'run-task', '--cluster', $EnvironmentName,
+    '--task-definition', "$EnvironmentName-migration",
+    '--launch-type', 'FARGATE', '--count', '1',
+    '--network-configuration', $networkFileUri
+  )
+} finally {
+  Remove-Item -LiteralPath $networkFile -Force -ErrorAction SilentlyContinue
+}
 if ($task.failures.Count -gt 0 -or $task.tasks.Count -ne 1) { throw 'Migration task failed to start.' }
 $taskArn = [string]$task.tasks[0].taskArn
 Invoke-Native aws @('ecs', 'wait', 'tasks-stopped', '--cluster', $EnvironmentName, '--tasks', $taskArn, '--profile', $Profile, '--region', $Region)
