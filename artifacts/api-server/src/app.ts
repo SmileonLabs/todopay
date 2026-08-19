@@ -13,6 +13,12 @@ const allowedOrigins = (process.env.CORS_ORIGINS ?? "http://127.0.0.1:21259,http
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+// Keep infrastructure liveness independent from authentication, CORS, body
+// parsing, logging transports, and downstream service availability.
+app.get("/api/healthz", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 // The API is behind exactly one ALB.  Trusting every X-Forwarded-For hop would
 // let a public caller spoof the webhook sender IP, so only trust the ALB hop.
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
