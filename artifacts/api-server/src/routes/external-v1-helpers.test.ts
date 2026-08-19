@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  booleanValue,
   dateValue,
+  isDateInput,
+  kstDate,
+  kstDaysSince,
+  maskAccount,
   normalizeBirthdate,
   pageValue,
   stableJson,
@@ -28,5 +33,22 @@ describe("external API helpers", () => {
     expect(
       storeCodesValue({ query: { storeCodes: "bad value" } } as never),
     ).toEqual([]);
+  });
+
+  it("validates exact dates, booleans, masking, and KST elapsed days", () => {
+    expect(isDateInput("2024-02-29")).toBe(true);
+    expect(isDateInput("2023-02-29")).toBe(false);
+    expect(isDateInput("2026-13-01")).toBe(false);
+    expect(booleanValue("true")).toBe(true);
+    expect(booleanValue("0")).toBe(false);
+    expect(booleanValue("yes")).toBeNull();
+    expect(maskAccount("1234567890")).toBe("123***7890");
+    expect(kstDate(new Date("2026-08-18T15:30:00.000Z"))).toBe("2026-08-19");
+    expect(
+      kstDaysSince(
+        new Date("2026-08-16T14:00:00.000Z"),
+        new Date("2026-08-19T01:00:00.000Z"),
+      ),
+    ).toBe(3);
   });
 });

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   db,
   adminUsersTable,
@@ -49,6 +50,7 @@ import {
   registrationResponse,
 } from "./external-v1-shared.js";
 const router = Router();
+const memberStore = alias(adminUsersTable, "external_member_store");
 
 router.get("/external/v1/members", async (req, res) => {
   const context = await authenticated(req, res);
@@ -63,13 +65,18 @@ router.get("/external/v1/members", async (req, res) => {
   if (storeScope) conditions.push(storeScope);
   if (search)
     conditions.push(
-      sql`(${membersTable.name} ilike ${`%${search}%`} or ${membersTable.loginId} ilike ${`%${search}%`} or ${membersTable.phone} ilike ${`%${search}%`})`,
+      sql`(${membersTable.name} ilike ${`%${search}%`} or ${membersTable.loginId} ilike ${`%${search}%`} or ${membersTable.phone} ilike ${`%${search}%`} or ${memberStore.loginId} ilike ${`%${search}%`} or ${memberStore.name} ilike ${`%${search}%`})`,
     );
   const scope = and(...conditions);
-  const [members, [{ count }]] = await Promise.all([
+  const [memberRows, [{ count }]] = await Promise.all([
     db
-      .select()
+      .select({
+        member: membersTable,
+        storeCode: memberStore.loginId,
+        storeName: memberStore.name,
+      })
       .from(membersTable)
+      .leftJoin(memberStore, eq(memberStore.id, membersTable.storeId))
       .where(scope)
       .orderBy(desc(membersTable.createdAt))
       .limit(limit)
@@ -77,10 +84,12 @@ router.get("/external/v1/members", async (req, res) => {
     db
       .select({ count: sql<number>`count(*)` })
       .from(membersTable)
+      .leftJoin(memberStore, eq(memberStore.id, membersTable.storeId))
       .where(scope),
   ]);
+  const members = memberRows.map((row) => row.member);
   const ids = members.map((member) => member.id);
-  const accounts =
+  const [accounts, issuances] = await Promise.all([
     ids.length === 0
       ? []
       : await db
@@ -91,16 +100,31 @@ router.get("/external/v1/members", async (req, res) => {
               inArray(virtualAccountsTable.memberId, ids),
               eq(virtualAccountsTable.status, "active"),
             ),
-          );
+          ),
+    ids.length === 0
+      ? []
+      : await db
+          .select()
+          .from(virtualAccountIssuancesTable)
+          .where(inArray(virtualAccountIssuancesTable.memberId, ids))
+          .orderBy(desc(virtualAccountIssuancesTable.createdAt)),
+  ]);
   const accountByMember = new Map(
     accounts.map((account) => [account.memberId, account]),
   );
+  const issuanceByMember = new Map<number, (typeof issuances)[number]>();
+  for (const issuance of issuances) {
+    if (!issuanceByMember.has(issuance.memberId))
+      issuanceByMember.set(issuance.memberId, issuance);
+  }
   res.json({
     page,
     limit,
     total: Number(count),
-    items: members.map((member) => {
+    items: memberRows.map((row) => {
+      const member = row.member;
       const account = accountByMember.get(member.id);
+      const issuance = issuanceByMember.get(member.id);
       return {
         id: member.id,
         loginId: member.loginId,
@@ -108,8 +132,17 @@ router.get("/external/v1/members", async (req, res) => {
         phone: member.phone,
         email: member.email ?? null,
         birthdate: member.birthdate ?? null,
+        storeCode: row.storeCode ?? member.storeCode ?? null,
+        storeName: row.storeName ?? null,
+        shoppingMallId: null,
+        withdrawalAccount: null,
         isActive: member.isActive,
         isVerified: member.isVerified,
+        virtualAccountStatus: account?.status ?? issuance?.status ?? null,
+        virtualAccountUpdatedAt:
+          issuance?.updatedAt.toISOString() ??
+          account?.createdAt.toISOString() ??
+          null,
         virtualAccount: account
           ? {
               bankName: account.bankName,
@@ -138,20 +171,16 @@ router.post("/external/v1/member-registrations", async (req, res) => {
       { limit: 10, windowSeconds: 60 * 60 },
     ))
   ) {
-    res
-      .status(429)
-      .json({
-        error: "가입 인증 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
-      });
+    res.status(429).json({
+      error: "가입 인증 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.",
+    });
     return;
   }
   if (process.env.PAYMENT_PROVIDER_ENABLED !== "true") {
-    res
-      .status(503)
-      .json({
-        error: "실명 인증 서비스를 사용할 수 없습니다.",
-        code: "PROVIDER_DISABLED",
-      });
+    res.status(503).json({
+      error: "실명 인증 서비스를 사용할 수 없습니다.",
+      code: "PROVIDER_DISABLED",
+    });
     return;
   }
 
@@ -180,12 +209,10 @@ router.post("/external/v1/member-registrations", async (req, res) => {
     !/^\d{3}$/.test(withdrawBankCode) ||
     !/^\d{6,20}$/.test(withdrawAccount)
   ) {
-    res
-      .status(400)
-      .json({
-        error: "회원 또는 본인계좌 정보를 다시 확인해 주세요.",
-        code: "INVALID_REGISTRATION",
-      });
+    res.status(400).json({
+      error: "회원 또는 본인계좌 정보를 다시 확인해 주세요.",
+      code: "INVALID_REGISTRATION",
+    });
     return;
   }
 
@@ -237,22 +264,18 @@ router.post("/external/v1/member-registrations", async (req, res) => {
     .orderBy(adminUsersTable.id)
     .limit(1);
   if (!ledgerStore) {
-    res
-      .status(409)
-      .json({
-        error: "가맹점 원장 매장이 설정되지 않았습니다.",
-        code: "LEDGER_STORE_MISSING",
-      });
+    res.status(409).json({
+      error: "가맹점 원장 매장이 설정되지 않았습니다.",
+      code: "LEDGER_STORE_MISSING",
+    });
     return;
   }
   const merchantId = process.env.KP_PAY_MERCHANT_ID?.trim() ?? "";
   if (!merchantId) {
-    res
-      .status(503)
-      .json({
-        error: "실명 인증 설정이 완료되지 않았습니다.",
-        code: "PROVIDER_CONFIG_MISSING",
-      });
+    res.status(503).json({
+      error: "실명 인증 설정이 완료되지 않았습니다.",
+      code: "PROVIDER_CONFIG_MISSING",
+    });
     return;
   }
 
@@ -266,12 +289,10 @@ router.post("/external/v1/member-registrations", async (req, res) => {
       (item) => item.bankCd === KPPAY_VIRTUAL_BANK_CODE,
     );
     if (!candidate) {
-      res
-        .status(409)
-        .json({
-          error: "현재 발급 가능한 가상계좌가 없습니다.",
-          code: "NO_VIRTUAL_ACCOUNT",
-        });
+      res.status(409).json({
+        error: "현재 발급 가능한 가상계좌가 없습니다.",
+        code: "NO_VIRTUAL_ACCOUNT",
+      });
       return;
     }
 
@@ -405,12 +426,10 @@ router.post(
     const id = Number(req.params.id);
     const code = stringValue(req.body?.code, 4);
     if (!Number.isSafeInteger(id) || id <= 0 || !/^\d{4}$/.test(code)) {
-      res
-        .status(400)
-        .json({
-          error: "1원 입금자명의 숫자 4자리를 입력해 주세요.",
-          code: "INVALID_CODE",
-        });
+      res.status(400).json({
+        error: "1원 입금자명의 숫자 4자리를 입력해 주세요.",
+        code: "INVALID_CODE",
+      });
       return;
     }
     if (
@@ -420,12 +439,10 @@ router.post(
         { limit: 10, windowSeconds: 10 * 60 },
       ))
     ) {
-      res
-        .status(429)
-        .json({
-          error: "인증번호 확인 요청이 너무 많습니다.",
-          code: "TOO_MANY_ATTEMPTS",
-        });
+      res.status(429).json({
+        error: "인증번호 확인 요청이 너무 많습니다.",
+        code: "TOO_MANY_ATTEMPTS",
+      });
       return;
     }
     const [issuance] = await db
@@ -452,13 +469,10 @@ router.post(
       return;
     }
     if (issuance.verificationAttempts >= 5) {
-      res
-        .status(409)
-        .json({
-          error:
-            "인증번호 입력 횟수를 초과했습니다. 가입을 다시 시작해 주세요.",
-          code: "TOO_MANY_ATTEMPTS",
-        });
+      res.status(409).json({
+        error: "인증번호 입력 횟수를 초과했습니다. 가입을 다시 시작해 주세요.",
+        code: "TOO_MANY_ATTEMPTS",
+      });
       return;
     }
     if (
@@ -473,12 +487,10 @@ router.post(
           .set({ status: "expired", updatedAt: new Date() })
           .where(eq(virtualAccountIssuancesTable.id, issuance.id));
       }
-      res
-        .status(409)
-        .json({
-          error: "인증 유효시간이 만료되었습니다. 가입을 다시 시작해 주세요.",
-          code: "REGISTRATION_EXPIRED",
-        });
+      res.status(409).json({
+        error: "인증 유효시간이 만료되었습니다. 가입을 다시 시작해 주세요.",
+        code: "REGISTRATION_EXPIRED",
+      });
       return;
     }
 
@@ -648,8 +660,13 @@ router.get("/external/v1/members/:id", async (req, res) => {
   }
   const storeScope = memberStoreScope(storeCodesValue(req));
   const [member] = await db
-    .select()
+    .select({
+      member: membersTable,
+      storeCode: memberStore.loginId,
+      storeName: memberStore.name,
+    })
     .from(membersTable)
+    .leftJoin(memberStore, eq(memberStore.id, membersTable.storeId))
     .where(
       and(
         eq(membersTable.id, id),
@@ -662,15 +679,30 @@ router.get("/external/v1/members/:id", async (req, res) => {
     res.status(404).json({ error: "회원을 찾을 수 없습니다." });
     return;
   }
-  const account = await accountForMember(member.id);
+  const account = await accountForMember(member.member.id);
+  const [issuance] = await db
+    .select()
+    .from(virtualAccountIssuancesTable)
+    .where(eq(virtualAccountIssuancesTable.memberId, member.member.id))
+    .orderBy(desc(virtualAccountIssuancesTable.createdAt))
+    .limit(1);
   res.json({
-    id: member.id,
-    loginId: member.loginId,
-    name: member.name,
-    phone: member.phone,
-    birthdate: member.birthdate ?? null,
-    isActive: member.isActive,
-    isVerified: member.isVerified,
+    id: member.member.id,
+    loginId: member.member.loginId,
+    name: member.member.name,
+    phone: member.member.phone,
+    birthdate: member.member.birthdate ?? null,
+    storeCode: member.storeCode ?? member.member.storeCode ?? null,
+    storeName: member.storeName ?? null,
+    shoppingMallId: null,
+    withdrawalAccount: null,
+    isActive: member.member.isActive,
+    isVerified: member.member.isVerified,
+    virtualAccountStatus: account?.status ?? issuance?.status ?? null,
+    virtualAccountUpdatedAt:
+      issuance?.updatedAt.toISOString() ??
+      account?.createdAt.toISOString() ??
+      null,
     virtualAccount: account
       ? {
           id: account.id,
@@ -679,7 +711,7 @@ router.get("/external/v1/members/:id", async (req, res) => {
           status: account.status,
         }
       : null,
-    createdAt: member.createdAt.toISOString(),
+    createdAt: member.member.createdAt.toISOString(),
   });
 });
 

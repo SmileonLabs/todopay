@@ -67,6 +67,24 @@ paths:
           description: Successful response (see route implementation for the typed payload)
         '4XX':
           description: Authentication, authorization, or validation error
+  /external/v1/balance/adjustments:
+    post:
+      operationId: postExternalV1BalanceAdjustments
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
+  /external/v1/balance/records:
+    get:
+      operationId: getExternalV1BalanceRecords
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
   /external/v1/fees:
     get:
       operationId: getExternalV1Fees
@@ -155,6 +173,15 @@ paths:
           description: Successful response (see route implementation for the typed payload)
         '4XX':
           description: Authentication, authorization, or validation error
+  /external/v1/members/{id}/virtual-account/reissue:
+    post:
+      operationId: postExternalV1MembersIdVirtualAccountReissue
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
   /external/v1/merchant:
     get:
       operationId: getExternalV1Merchant
@@ -217,6 +244,24 @@ paths:
           description: Successful response (see route implementation for the typed payload)
         '4XX':
           description: Authentication, authorization, or validation error
+  /external/v1/settlements/records:
+    get:
+      operationId: getExternalV1SettlementsRecords
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
+  /external/v1/settlements/summary:
+    get:
+      operationId: getExternalV1SettlementsSummary
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
   /external/v1/statistics/daily:
     get:
       operationId: getExternalV1StatisticsDaily
@@ -253,9 +298,35 @@ paths:
           description: Successful response (see route implementation for the typed payload)
         '4XX':
           description: Authentication, authorization, or validation error
+  /external/v1/transactions/{trackingNumber}/confirm-purchase:
+    post:
+      operationId: postExternalV1TransactionsTrackingNumberConfirmPurchase
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
   /external/v1/virtual-accounts:
     get:
       operationId: getExternalV1VirtualAccounts
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
+    post:
+      operationId: postExternalV1VirtualAccounts
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
+  /external/v1/virtual-accounts/{id}/revoke:
+    post:
+      operationId: postExternalV1VirtualAccountsIdRevoke
       tags: [external]
       responses:
         '200':
@@ -274,6 +345,41 @@ paths:
   /external/v1/withdrawals:
     get:
       operationId: getExternalV1Withdrawals
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
+    post:
+      operationId: postExternalV1Withdrawals
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
+  /external/v1/withdrawals/{id}/approve:
+    post:
+      operationId: postExternalV1WithdrawalsIdApprove
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
+  /external/v1/withdrawals/{id}/payout:
+    post:
+      operationId: postExternalV1WithdrawalsIdPayout
+      tags: [external]
+      responses:
+        '200':
+          description: Successful response (see route implementation for the typed payload)
+        '4XX':
+          description: Authentication, authorization, or validation error
+  /external/v1/withdrawals/{id}/reject:
+    post:
+      operationId: postExternalV1WithdrawalsIdReject
       tags: [external]
       responses:
         '200':

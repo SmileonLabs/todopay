@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { Router, type Request, type Response } from "express";
 import { and, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import {
   db,
   adminUsersTable,
@@ -26,8 +27,10 @@ import {
   activeAccountStoreScope,
   bankNames,
   dateValue,
+  isDateInput,
   KPPAY_VIRTUAL_BANK_CODE,
   ledgerStoreScope,
+  maskAccount,
   memberStoreScope,
   normalizeBirthdate,
   pageValue,
@@ -49,6 +52,13 @@ import {
   registrationResponse,
 } from "./external-v1-shared.js";
 const router = Router();
+const withdrawalStore = alias(adminUsersTable, "external_withdrawal_store");
+const withdrawalApprover = alias(
+  adminUsersTable,
+  "external_withdrawal_approver",
+);
+const transactionMember = alias(membersTable, "external_transaction_member");
+const transactionStore = alias(adminUsersTable, "external_transaction_store");
 
 router.get("/external/v1/transactions", async (req, res) => {
   const context = await authenticated(req, res);
@@ -61,6 +71,21 @@ router.get("/external/v1/transactions", async (req, res) => {
   const search = stringValue(req.query.search, 100);
   const startDate = dateValue(req.query.startDate);
   const endDate = dateValue(req.query.endDate, true);
+  if (
+    (req.query.startDate !== undefined && !isDateInput(req.query.startDate)) ||
+    (req.query.endDate !== undefined && !isDateInput(req.query.endDate)) ||
+    (startDate && endDate && startDate > endDate) ||
+    (status &&
+      !["received", "processing", "pending", "success", "failed"].includes(
+        status,
+      )) ||
+    (type && !["deposit", "withdrawal"].includes(type))
+  ) {
+    res
+      .status(400)
+      .json({ error: "Invalid transaction filter", code: "INVALID_FILTER" });
+    return;
+  }
   const conditions = [eq(transactionsTable.merchantId, context.merchant.id)];
   const storeScope = transactionStoreScope(storeCodesValue(req));
   if (storeScope) conditions.push(storeScope);
@@ -73,13 +98,31 @@ router.get("/external/v1/transactions", async (req, res) => {
       or(
         ilike(transactionsTable.trackingNumber, `%${search}%`),
         ilike(transactionsTable.pgTransactionId, `%${search}%`),
+        ilike(transactionMember.name, `%${search}%`),
+        ilike(transactionStore.loginId, `%${search}%`),
+        ilike(transactionStore.name, `%${search}%`),
+        ilike(transactionsTable.fromAccount, `%${search}%`),
+        ilike(transactionsTable.toAccount, `%${search}%`),
       )!,
     );
   const scope = and(...conditions);
   const [items, [{ count }]] = await Promise.all([
     db
-      .select()
+      .select({
+        transaction: transactionsTable,
+        memberName: transactionMember.name,
+        storeCode: transactionStore.loginId,
+        storeName: transactionStore.name,
+      })
       .from(transactionsTable)
+      .leftJoin(
+        transactionMember,
+        eq(transactionMember.id, transactionsTable.memberId),
+      )
+      .leftJoin(
+        transactionStore,
+        eq(transactionStore.id, transactionMember.storeId),
+      )
       .where(scope)
       .orderBy(desc(transactionsTable.createdAt))
       .limit(limit)
@@ -87,24 +130,42 @@ router.get("/external/v1/transactions", async (req, res) => {
     db
       .select({ count: sql<number>`count(*)` })
       .from(transactionsTable)
+      .leftJoin(
+        transactionMember,
+        eq(transactionMember.id, transactionsTable.memberId),
+      )
+      .leftJoin(
+        transactionStore,
+        eq(transactionStore.id, transactionMember.storeId),
+      )
       .where(scope),
   ]);
   res.json({
     page,
     limit,
     total: Number(count),
-    items: items.map((item) => ({
-      id: item.id,
-      trackingNumber: item.trackingNumber,
-      type: item.type,
-      originalAmount: Number(item.originalAmount),
-      amount: Number(item.amount),
-      fee: Number(item.fee),
-      status: item.status,
-      providerTransactionId: item.pgTransactionId,
-      createdAt: item.createdAt.toISOString(),
-      processedAt: item.processedAt?.toISOString() ?? null,
-    })),
+    items: items.map((row) => {
+      const item = row.transaction;
+      return {
+        id: item.id,
+        trackingNumber: item.trackingNumber,
+        type: item.type,
+        originalAmount: Number(item.originalAmount),
+        amount: Number(item.amount),
+        fee: Number(item.fee),
+        status: item.status,
+        storeCode: row.storeCode ?? null,
+        storeName: row.storeName ?? null,
+        memberName: row.memberName ?? null,
+        depositorName: null,
+        fromAccountMasked: maskAccount(item.fromAccount),
+        toAccountMasked: maskAccount(item.toAccount),
+        runningBalance: null,
+        providerTransactionId: item.pgTransactionId,
+        createdAt: item.createdAt.toISOString(),
+        processedAt: item.processedAt?.toISOString() ?? null,
+      };
+    }),
   });
 });
 
@@ -178,6 +239,27 @@ router.get("/external/v1/withdrawals", async (req, res) => {
   const search = stringValue(req.query.search, 100);
   const startDate = dateValue(req.query.startDate);
   const endDate = dateValue(req.query.endDate, true);
+  if (
+    (req.query.startDate !== undefined && !isDateInput(req.query.startDate)) ||
+    (req.query.endDate !== undefined && !isDateInput(req.query.endDate)) ||
+    (startDate && endDate && startDate > endDate) ||
+    (approvalStatus &&
+      !["pending", "approved", "rejected"].includes(approvalStatus)) ||
+    (payoutStatus &&
+      ![
+        "unpaid",
+        "submitting",
+        "processing",
+        "paid",
+        "failed",
+        "unknown",
+      ].includes(payoutStatus))
+  ) {
+    res
+      .status(400)
+      .json({ error: "Invalid withdrawal filter", code: "INVALID_FILTER" });
+    return;
+  }
   const conditions = [eq(withdrawalsTable.merchantId, context.merchant.id)];
   const storeScope = withdrawalStoreScope(storeCodesValue(req));
   if (storeScope) conditions.push(storeScope);
@@ -192,13 +274,28 @@ router.get("/external/v1/withdrawals", async (req, res) => {
       or(
         ilike(withdrawalsTable.trackingNumber, `%${search}%`),
         ilike(withdrawalsTable.providerTransactionId, `%${search}%`),
+        ilike(withdrawalStore.loginId, `%${search}%`),
+        ilike(withdrawalStore.name, `%${search}%`),
       )!,
     );
   const scope = and(...conditions);
-  const [items, [{ count }]] = await Promise.all([
+  const [items, [{ count }], [totals]] = await Promise.all([
     db
-      .select()
+      .select({
+        withdrawal: withdrawalsTable,
+        storeCode: withdrawalStore.loginId,
+        storeName: withdrawalStore.name,
+        approvedByName: withdrawalApprover.name,
+      })
       .from(withdrawalsTable)
+      .leftJoin(
+        withdrawalStore,
+        eq(withdrawalStore.id, withdrawalsTable.storeId),
+      )
+      .leftJoin(
+        withdrawalApprover,
+        eq(withdrawalApprover.id, withdrawalsTable.approvedBy),
+      )
       .where(scope)
       .orderBy(desc(withdrawalsTable.createdAt))
       .limit(limit)
@@ -206,24 +303,54 @@ router.get("/external/v1/withdrawals", async (req, res) => {
     db
       .select({ count: sql<number>`count(*)` })
       .from(withdrawalsTable)
+      .leftJoin(
+        withdrawalStore,
+        eq(withdrawalStore.id, withdrawalsTable.storeId),
+      )
+      .where(scope),
+    db
+      .select({
+        totalAmount: sql<number>`coalesce(sum(${withdrawalsTable.amount}), 0)`,
+        feeAmount: sql<number>`coalesce(sum(${withdrawalsTable.fee}), 0)`,
+        actualWithdrawalAmount: sql<number>`coalesce(sum(${withdrawalsTable.totalAmount}) filter (where ${withdrawalsTable.withdrawalStatus} = 'paid'), 0)`,
+      })
+      .from(withdrawalsTable)
+      .leftJoin(
+        withdrawalStore,
+        eq(withdrawalStore.id, withdrawalsTable.storeId),
+      )
       .where(scope),
   ]);
   res.json({
     page,
     limit,
     total: Number(count),
-    items: items.map((item) => ({
-      id: item.id,
-      trackingNumber: item.trackingNumber,
-      amount: Number(item.amount),
-      fee: Number(item.fee),
-      payoutAmount: Number(item.totalAmount),
-      approvalStatus: item.approvalStatus,
-      payoutStatus: item.withdrawalStatus,
-      providerTransactionId: item.providerTransactionId ?? null,
-      createdAt: item.createdAt.toISOString(),
-      providerUpdatedAt: item.providerUpdatedAt?.toISOString() ?? null,
-    })),
+    totalAmount: Number(totals.totalAmount),
+    withdrawalFeeAmount: Number(totals.feeAmount),
+    actualWithdrawalAmount: Number(totals.actualWithdrawalAmount),
+    items: items.map((row) => {
+      const item = row.withdrawal;
+      return {
+        id: item.id,
+        trackingNumber: item.trackingNumber,
+        amount: Number(item.amount),
+        totalAmount: Number(item.amount),
+        fee: Number(item.fee),
+        payoutAmount: Number(item.totalAmount),
+        actualWithdrawalAmount:
+          item.withdrawalStatus === "paid" ? Number(item.totalAmount) : null,
+        approvalStatus: item.approvalStatus,
+        payoutStatus: item.withdrawalStatus,
+        approvedBy:
+          row.approvedByName ??
+          (item.approvedBy == null ? null : String(item.approvedBy)),
+        storeCode: row.storeCode ?? null,
+        storeName: row.storeName ?? null,
+        providerTransactionId: item.providerTransactionId ?? null,
+        createdAt: item.createdAt.toISOString(),
+        providerUpdatedAt: item.providerUpdatedAt?.toISOString() ?? null,
+      };
+    }),
   });
 });
 

@@ -76,10 +76,59 @@ export function storeCodesValue(req: Request): string[] | null {
     ? codes
     : [];
 }
-function sqlValues(values: string[]) {
+export function sqlValues(values: string[]) {
   return sql.join(
     values.map((value) => sql`${value}`),
     sql`, `,
+  );
+}
+
+export function booleanValue(value: unknown): boolean | null {
+  if (value === undefined) return null;
+  if (value === true || value === "true" || value === "1") return true;
+  if (value === false || value === "false" || value === "0") return false;
+  return null;
+}
+
+export function isDateInput(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false;
+  const parsed = dateValue(value);
+  if (!parsed) return false;
+  return (
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(parsed) === value
+  );
+}
+
+export function maskAccount(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const compact = value.replace(/\s/g, "");
+  if (compact.length <= 4) return "*".repeat(compact.length);
+  if (compact.length <= 8)
+    return `${compact.slice(0, 2)}${"*".repeat(compact.length - 4)}${compact.slice(-2)}`;
+  return `${compact.slice(0, 3)}${"*".repeat(compact.length - 7)}${compact.slice(-4)}`;
+}
+
+export function kstDate(value: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(value);
+}
+
+export function kstDaysSince(value: Date, now = new Date()): number {
+  const start = dateValue(kstDate(value))!;
+  const end = dateValue(kstDate(now))!;
+  return Math.max(
+    0,
+    Math.floor((end.getTime() - start.getTime()) / 86_400_000),
   );
 }
 export function memberStoreScope(codes: string[] | null) {
