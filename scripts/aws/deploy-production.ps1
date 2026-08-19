@@ -32,6 +32,35 @@ function Get-ImageRepository([string]$Image) {
   throw "Cannot determine ECR repository from image: $Image"
 }
 
+function Invoke-DockerLogin {
+  param(
+    [Parameter(Mandatory = $true)][string]$Registry,
+    [Parameter(Mandatory = $true)][string]$Password
+  )
+
+  # Windows PowerShell can re-encode native pipeline input, corrupting the
+  # ECR token. Write directly to stdin so the token reaches Docker unchanged.
+  $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+  $startInfo.FileName = 'docker'
+  $startInfo.Arguments = "login --username AWS --password-stdin $Registry"
+  $startInfo.UseShellExecute = $false
+  $startInfo.RedirectStandardInput = $true
+  $startInfo.RedirectStandardOutput = $true
+  $startInfo.RedirectStandardError = $true
+
+  $process = [System.Diagnostics.Process]::Start($startInfo)
+  $process.StandardInput.WriteLine($Password.Trim())
+  $process.StandardInput.Close()
+  $stdout = $process.StandardOutput.ReadToEnd()
+  $stderr = $process.StandardError.ReadToEnd()
+  $process.WaitForExit()
+  if ($stdout) { Write-Host $stdout.TrimEnd() }
+  if ($process.ExitCode -ne 0) {
+    if ($stderr) { Write-Error $stderr.TrimEnd() }
+    throw 'Docker ECR login failed.'
+  }
+}
+
 function Deploy-ComputeStack {
   param(
     [Parameter(Mandatory = $true)][object[]]$CurrentParameters,
@@ -105,8 +134,7 @@ Invoke-Native docker @('build', '--target', 'migration', '--tag', $migrationImag
 
 $password = & aws ecr get-login-password --profile $Profile --region $Region
 if ($LASTEXITCODE -ne 0) { throw 'Could not obtain ECR login password.' }
-$password | docker login --username AWS --password-stdin $registry | Out-Host
-if ($LASTEXITCODE -ne 0) { throw 'Docker ECR login failed.' }
+Invoke-DockerLogin -Registry $registry -Password ($password -join "`n")
 Invoke-Native docker @('push', $apiImage)
 Invoke-Native docker @('push', $migrationImage)
 
