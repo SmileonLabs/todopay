@@ -1200,6 +1200,17 @@ webhooks:
           description: Event accepted or already processed
 
 components:
+  securitySchemes:
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: todopay_admin_session
+      description: HttpOnly SameSite=Strict browser session cookie set by /auth/login.
+    merchantApiKey:
+      type: apiKey
+      in: header
+      name: X-TodoPay-Api-Key
+      description: Merchant server-to-server API key, additionally restricted by source IP.
   parameters:
     TodoPayApiKey:
       name: X-TodoPay-Api-Key
@@ -1342,12 +1353,10 @@ components:
 
     AuthResponse:
       type: object
-      required: [user, token]
+      required: [user]
       properties:
         user:
           $ref: "#/components/schemas/AdminUser"
-        token:
-          type: string
 
     # Admin Users
     AdminUser:

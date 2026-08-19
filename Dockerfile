@@ -26,6 +26,12 @@ ENV NODE_EXTRA_CA_CERTS=/app/rds-global-bundle.pem
 COPY --from=build /app/artifacts/api-server/dist ./dist
 COPY --from=build /app/rds-global-bundle.pem ./rds-global-bundle.pem
 
+# pino/thread-stream worker URLs are resolved from the absolute build path.
+# Keep that path available in the slim runtime image while retaining /app/dist
+# for the API and docker-compose worker commands.
+RUN mkdir -p /app/artifacts/api-server \
+  && ln -s /app/dist /app/artifacts/api-server/dist
+
 USER node
 EXPOSE 8080
 CMD ["node", "--enable-source-maps", "./dist/index.mjs"]

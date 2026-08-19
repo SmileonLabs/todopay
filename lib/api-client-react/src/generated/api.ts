@@ -21,6 +21,7 @@ import type {
   AdminUserInput,
   AdminUserList,
   AdminUserUpdate,
+  AttachExternalPaymentIntentMemberBody,
   AuthResponse,
   BalanceRecord,
   BalanceRecordInput,
@@ -33,6 +34,7 @@ import type {
   FeeConfigUpdate,
   FeeListItem,
   GetDailyStatisticsParams,
+  GetExternalPaymentIntentByMerchantOrderParams,
   GetSettlementSummaryParams,
   HealthStatus,
   ListBalanceRecordsParams,
@@ -55,6 +57,8 @@ import type {
   NoticeUpdate,
   OtpSettings,
   OtpSettingsUpdate,
+  PaymentIntent,
+  PaymentIntentCreateInput,
   RegisterLink,
   RejectInput,
   ResetPasswordInput,
@@ -4045,4 +4049,471 @@ export const useUpdateOtpSettings = <
   TContext
 > => {
   return useMutation(getUpdateOtpSettingsMutationOptions(options));
+};
+
+/**
+ * @summary Create an idempotent merchant order payment intent
+ */
+export const getCreateExternalPaymentIntentUrl = () => {
+  return `/api/external/v1/payment-intents`;
+};
+
+export const createExternalPaymentIntent = async (
+  paymentIntentCreateInput: PaymentIntentCreateInput,
+  options?: RequestInit,
+): Promise<PaymentIntent> => {
+  return customFetch<PaymentIntent>(getCreateExternalPaymentIntentUrl(), {
+    ...options,
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...options?.headers },
+    body: JSON.stringify(paymentIntentCreateInput),
+  });
+};
+
+export const getCreateExternalPaymentIntentMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createExternalPaymentIntent>>,
+    TError,
+    { data: BodyType<PaymentIntentCreateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createExternalPaymentIntent>>,
+  TError,
+  { data: BodyType<PaymentIntentCreateInput> },
+  TContext
+> => {
+  const mutationKey = ["createExternalPaymentIntent"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createExternalPaymentIntent>>,
+    { data: BodyType<PaymentIntentCreateInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createExternalPaymentIntent(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateExternalPaymentIntentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createExternalPaymentIntent>>
+>;
+export type CreateExternalPaymentIntentMutationBody =
+  BodyType<PaymentIntentCreateInput>;
+export type CreateExternalPaymentIntentMutationError = ErrorType<void>;
+
+/**
+ * @summary Create an idempotent merchant order payment intent
+ */
+export const useCreateExternalPaymentIntent = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createExternalPaymentIntent>>,
+    TError,
+    { data: BodyType<PaymentIntentCreateInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createExternalPaymentIntent>>,
+  TError,
+  { data: BodyType<PaymentIntentCreateInput> },
+  TContext
+> => {
+  return useMutation(getCreateExternalPaymentIntentMutationOptions(options));
+};
+
+/**
+ * @summary Get a payment intent by merchant order ID
+ */
+export const getGetExternalPaymentIntentByMerchantOrderUrl = (
+  params: GetExternalPaymentIntentByMerchantOrderParams,
+) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/external/v1/payment-intents?${stringifiedParams}`
+    : `/api/external/v1/payment-intents`;
+};
+
+export const getExternalPaymentIntentByMerchantOrder = async (
+  params: GetExternalPaymentIntentByMerchantOrderParams,
+  options?: RequestInit,
+): Promise<PaymentIntent> => {
+  return customFetch<PaymentIntent>(
+    getGetExternalPaymentIntentByMerchantOrderUrl(params),
+    {
+      ...options,
+      method: "GET",
+    },
+  );
+};
+
+export const getGetExternalPaymentIntentByMerchantOrderQueryKey = (
+  params?: GetExternalPaymentIntentByMerchantOrderParams,
+) => {
+  return [
+    `/api/external/v1/payment-intents`,
+    ...(params ? [params] : []),
+  ] as const;
+};
+
+export const getGetExternalPaymentIntentByMerchantOrderQueryOptions = <
+  TData = Awaited<ReturnType<typeof getExternalPaymentIntentByMerchantOrder>>,
+  TError = ErrorType<void>,
+>(
+  params: GetExternalPaymentIntentByMerchantOrderParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getExternalPaymentIntentByMerchantOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ??
+    getGetExternalPaymentIntentByMerchantOrderQueryKey(params);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getExternalPaymentIntentByMerchantOrder>>
+  > = ({ signal }) =>
+    getExternalPaymentIntentByMerchantOrder(params, {
+      signal,
+      ...requestOptions,
+    });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getExternalPaymentIntentByMerchantOrder>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetExternalPaymentIntentByMerchantOrderQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getExternalPaymentIntentByMerchantOrder>>
+>;
+export type GetExternalPaymentIntentByMerchantOrderQueryError = ErrorType<void>;
+
+/**
+ * @summary Get a payment intent by merchant order ID
+ */
+
+export function useGetExternalPaymentIntentByMerchantOrder<
+  TData = Awaited<ReturnType<typeof getExternalPaymentIntentByMerchantOrder>>,
+  TError = ErrorType<void>,
+>(
+  params: GetExternalPaymentIntentByMerchantOrderParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getExternalPaymentIntentByMerchantOrder>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetExternalPaymentIntentByMerchantOrderQueryOptions(
+    params,
+    options,
+  );
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get a payment intent by TodoPay ID
+ */
+export const getGetExternalPaymentIntentUrl = (id: string) => {
+  return `/api/external/v1/payment-intents/${id}`;
+};
+
+export const getExternalPaymentIntent = async (
+  id: string,
+  options?: RequestInit,
+): Promise<PaymentIntent> => {
+  return customFetch<PaymentIntent>(getGetExternalPaymentIntentUrl(id), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetExternalPaymentIntentQueryKey = (id: string) => {
+  return [`/api/external/v1/payment-intents/${id}`] as const;
+};
+
+export const getGetExternalPaymentIntentQueryOptions = <
+  TData = Awaited<ReturnType<typeof getExternalPaymentIntent>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getExternalPaymentIntent>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey =
+    queryOptions?.queryKey ?? getGetExternalPaymentIntentQueryKey(id);
+
+  const queryFn: QueryFunction<
+    Awaited<ReturnType<typeof getExternalPaymentIntent>>
+  > = ({ signal }) =>
+    getExternalPaymentIntent(id, { signal, ...requestOptions });
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: !!id,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getExternalPaymentIntent>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetExternalPaymentIntentQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getExternalPaymentIntent>>
+>;
+export type GetExternalPaymentIntentQueryError = ErrorType<void>;
+
+/**
+ * @summary Get a payment intent by TodoPay ID
+ */
+
+export function useGetExternalPaymentIntent<
+  TData = Awaited<ReturnType<typeof getExternalPaymentIntent>>,
+  TError = ErrorType<void>,
+>(
+  id: string,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getExternalPaymentIntent>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetExternalPaymentIntentQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Cancel an unpaid payment intent
+ */
+export const getCancelExternalPaymentIntentUrl = (id: string) => {
+  return `/api/external/v1/payment-intents/${id}/cancel`;
+};
+
+export const cancelExternalPaymentIntent = async (
+  id: string,
+  options?: RequestInit,
+): Promise<PaymentIntent> => {
+  return customFetch<PaymentIntent>(getCancelExternalPaymentIntentUrl(id), {
+    ...options,
+    method: "POST",
+  });
+};
+
+export const getCancelExternalPaymentIntentMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelExternalPaymentIntent>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof cancelExternalPaymentIntent>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["cancelExternalPaymentIntent"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof cancelExternalPaymentIntent>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return cancelExternalPaymentIntent(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CancelExternalPaymentIntentMutationResult = NonNullable<
+  Awaited<ReturnType<typeof cancelExternalPaymentIntent>>
+>;
+
+export type CancelExternalPaymentIntentMutationError = ErrorType<void>;
+
+/**
+ * @summary Cancel an unpaid payment intent
+ */
+export const useCancelExternalPaymentIntent = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof cancelExternalPaymentIntent>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof cancelExternalPaymentIntent>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getCancelExternalPaymentIntentMutationOptions(options));
+};
+
+/**
+ * Transitions only requires_member to awaiting_deposit. Repeating the same member after attachment is idempotent; a different member is rejected.
+ * @summary Attach an active verified TodoPay member and virtual account
+ */
+export const getAttachExternalPaymentIntentMemberUrl = (id: string) => {
+  return `/api/external/v1/payment-intents/${id}/member`;
+};
+
+export const attachExternalPaymentIntentMember = async (
+  id: string,
+  attachExternalPaymentIntentMemberBody: AttachExternalPaymentIntentMemberBody,
+  options?: RequestInit,
+): Promise<PaymentIntent> => {
+  return customFetch<PaymentIntent>(
+    getAttachExternalPaymentIntentMemberUrl(id),
+    {
+      ...options,
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...options?.headers },
+      body: JSON.stringify(attachExternalPaymentIntentMemberBody),
+    },
+  );
+};
+
+export const getAttachExternalPaymentIntentMemberMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof attachExternalPaymentIntentMember>>,
+    TError,
+    { id: string; data: BodyType<AttachExternalPaymentIntentMemberBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof attachExternalPaymentIntentMember>>,
+  TError,
+  { id: string; data: BodyType<AttachExternalPaymentIntentMemberBody> },
+  TContext
+> => {
+  const mutationKey = ["attachExternalPaymentIntentMember"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof attachExternalPaymentIntentMember>>,
+    { id: string; data: BodyType<AttachExternalPaymentIntentMemberBody> }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return attachExternalPaymentIntentMember(id, data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type AttachExternalPaymentIntentMemberMutationResult = NonNullable<
+  Awaited<ReturnType<typeof attachExternalPaymentIntentMember>>
+>;
+export type AttachExternalPaymentIntentMemberMutationBody =
+  BodyType<AttachExternalPaymentIntentMemberBody>;
+export type AttachExternalPaymentIntentMemberMutationError = ErrorType<void>;
+
+/**
+ * @summary Attach an active verified TodoPay member and virtual account
+ */
+export const useAttachExternalPaymentIntentMember = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof attachExternalPaymentIntentMember>>,
+    TError,
+    { id: string; data: BodyType<AttachExternalPaymentIntentMemberBody> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof attachExternalPaymentIntentMember>>,
+  TError,
+  { id: string; data: BodyType<AttachExternalPaymentIntentMemberBody> },
+  TContext
+> => {
+  return useMutation(
+    getAttachExternalPaymentIntentMemberMutationOptions(options),
+  );
 };

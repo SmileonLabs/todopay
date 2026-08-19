@@ -1,62 +1,45 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { setAuthTokenGetter } from "@workspace/api-client-react";
 import type { AdminUser } from "@workspace/api-client-react";
 
-const TOKEN_KEY = "todopay_token";
+const COOKIE_SESSION = "cookie-session";
 
 interface AuthContextValue {
   user: AdminUser | null;
   token: string | null;
   isLoading: boolean;
-  signIn: (token: string, user: AdminUser) => void;
-  signOut: () => void;
+  signIn: (user: AdminUser) => void;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() =>
-    localStorage.getItem(TOKEN_KEY),
-  );
+  const [token, setToken] = useState<string | null>(COOKIE_SESSION);
   const [user, setUser] = useState<AdminUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    setAuthTokenGetter(() => localStorage.getItem(TOKEN_KEY));
-  }, []);
-
-  useEffect(() => {
-    if (!token) {
-      setUser(null);
-      setIsLoading(false);
-      return;
-    }
-
     setIsLoading(true);
-    fetch("/api/auth/me", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
+    fetch("/api/auth/me", { credentials: "include" })
       .then((res) => {
         if (!res.ok) throw new Error("unauthorized");
         return res.json() as Promise<AdminUser>;
       })
       .then((u) => setUser(u))
       .catch(() => {
-        localStorage.removeItem(TOKEN_KEY);
         setToken(null);
         setUser(null);
       })
       .finally(() => setIsLoading(false));
-  }, [token]);
+  }, []);
 
-  const signIn = (newToken: string, newUser: AdminUser) => {
-    localStorage.setItem(TOKEN_KEY, newToken);
-    setToken(newToken);
+  const signIn = (newUser: AdminUser) => {
+    setToken(COOKIE_SESSION);
     setUser(newUser);
   };
 
-  const signOut = () => {
-    localStorage.removeItem(TOKEN_KEY);
+  const signOut = async () => {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => undefined);
     setToken(null);
     setUser(null);
   };

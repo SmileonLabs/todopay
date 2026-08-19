@@ -13,6 +13,7 @@ import {
 import { writeAuditLog } from "../lib/audit.js";
 import { allowRequest } from "../lib/rate-limit.js";
 import { verifyUserTotp } from "../lib/mfa.js";
+import { clearAdminSessionCookie, setAdminSessionCookie } from "../lib/session-cookie.js";
 
 const router = Router();
 
@@ -67,6 +68,7 @@ router.post("/auth/login", async (req, res) => {
   }
 
   const token = signToken(user.id, user.loginId, user.sessionVersion);
+  setAdminSessionCookie(res, token);
   await writeAuditLog(req, { actorId: user.id, action: "admin.login", resourceType: "admin_user", resourceId: user.id });
   const parent = user.parentId
     ? await db.select().from(adminUsersTable).where(eq(adminUsersTable.id, user.parentId)).then(r => r[0])
@@ -86,13 +88,13 @@ router.post("/auth/login", async (req, res) => {
       parentName: parent?.name ?? null,
       createdAt: user.createdAt.toISOString(),
     },
-    token,
   });
 });
 
 router.post("/auth/logout", async (req, res) => {
   const user = await requireAdmin(req.headers.authorization, { checkActive: false });
   await invalidateToken(req.headers.authorization);
+  clearAdminSessionCookie(res);
   if (user) await writeAuditLog(req, { actorId: user.id, action: "admin.logout", resourceType: "admin_user", resourceId: user.id });
   res.json({ success: true });
 });

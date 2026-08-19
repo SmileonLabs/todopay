@@ -43,21 +43,6 @@ services:
       - "127.0.0.1:8080:8080"
     networks: [internal]
 
-  worker:
-    build: .
-    command: ["node", "--enable-source-maps", "./dist/worker.mjs"]
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://todopay:${POSTGRES_PASSWORD}@postgres:5432/todopay
-      REDIS_URL: redis://redis:6379
-      REQUIRE_REDIS: "true"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks: [internal]
-
 volumes:
   postgres_data:
   redis_data:

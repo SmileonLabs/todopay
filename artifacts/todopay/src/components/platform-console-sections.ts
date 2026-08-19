@@ -1,0 +1,9 @@
+export { Dashboard } from "./platform-dashboard";
+export { MerchantManager } from "./platform-merchant-manager";
+export { Filters } from "./platform-filters";
+export { Payments } from "./platform-payments";
+export { Withdrawals } from "./platform-withdrawals";
+export { Webhooks } from "./platform-webhooks";
+export { Credentials } from "./platform-credentials";
+export { Audit } from "./platform-audit";
+export { System } from "./platform-system";

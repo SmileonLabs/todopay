@@ -29,13 +29,13 @@ export default function LoginClean() {
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ loginId, password, otpCode: otpCode || undefined }),
       });
       const body = (await response.json().catch(() => ({}))) as {
         error?: string;
         otpRequired?: boolean;
-        token?: string;
         user?: import("@workspace/api-client-react").AdminUser;
       };
       if (!response.ok) {
@@ -45,8 +45,8 @@ export default function LoginClean() {
         }
         throw new Error(body.error ?? `로그인에 실패했습니다. (HTTP ${response.status})`);
       }
-      if (!body.token || !body.user) throw new Error("로그인 응답이 올바르지 않습니다.");
-      signIn(body.token, body.user);
+      if (!body.user) throw new Error("로그인 응답이 올바르지 않습니다.");
+      signIn(body.user);
       setLocation("/dashboard");
     } catch (error) {
       toast({

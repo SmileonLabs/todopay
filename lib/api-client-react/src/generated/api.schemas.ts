@@ -5,6 +5,137 @@
  * TodoPay API specification
  * OpenAPI spec version: 0.1.0
  */
+/**
+ * Maximum canonical JSON size is 8192 bytes. Do not include secrets or unnecessary personal data.
+ */
+export type PaymentIntentCreateInputMetadata = { [key: string]: unknown };
+
+export type PaymentIntentCreateInput = unknown & {
+  /**
+   * @maxLength 100
+   * @pattern ^[A-Za-z0-9._:-]+$
+   */
+  merchantOrderId: string;
+  /** @maxLength 100 */
+  externalCustomerId?: string;
+  /** @minimum 1 */
+  memberId?: number;
+  /**
+   * Increment only for a deliberate new payment attempt for the same merchant order.
+   * @minimum 1
+   * @maximum 999999
+   */
+  attemptNumber?: number;
+  /**
+   * Positive whole KRW amount. JSON numbers and fractional values are rejected.
+   * @pattern ^[1-9][0-9]{0,14}$
+   */
+  amount: string;
+  currency?: "KRW";
+  /** Between 5 minutes and 30 days from creation. Defaults to 24 hours. */
+  expiresAt?: string;
+  /** @maxLength 200 */
+  description?: string;
+  /** Maximum canonical JSON size is 8192 bytes. Do not include secrets or unnecessary personal data. */
+  metadata?: PaymentIntentCreateInputMetadata;
+};
+
+export type PaymentIntentStatus =
+  (typeof PaymentIntentStatus)[keyof typeof PaymentIntentStatus];
+
+export const PaymentIntentStatus = {
+  requires_member: "requires_member",
+  awaiting_deposit: "awaiting_deposit",
+  processing: "processing",
+  succeeded: "succeeded",
+  amount_mismatch: "amount_mismatch",
+  expired: "expired",
+  cancelled: "cancelled",
+  reversed: "reversed",
+} as const;
+
+export type PaymentIntentMetadata = { [key: string]: unknown };
+
+export interface PaymentIntentVirtualAccount {
+  bankName: string;
+  accountNumber: string;
+  status: string;
+}
+
+export interface PaymentIntent {
+  /** @pattern ^pi_[a-f0-9]{32}$ */
+  id: string;
+  merchantOrderId: string;
+  /** @minimum 1 */
+  attemptNumber?: number;
+  /** @nullable */
+  externalCustomerId?: string | null;
+  /** @nullable */
+  memberId?: number | null;
+  /** @pattern ^[1-9][0-9]*$ */
+  amount: string;
+  currency: "KRW";
+  status: PaymentIntentStatus;
+  /**
+   * KPPay trackId derived from merchant order ID and attempt number. It is not registered with KPPay until the explicit live-binding phase.
+   * @maxLength 50
+   * @nullable
+   */
+  trackingNumber?: string | null;
+  expiresAt: string;
+  virtualAccount?: PaymentIntentVirtualAccount | null;
+  /** @nullable */
+  description?: string | null;
+  metadata?: PaymentIntentMetadata;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PaymentIntentWebhookEventType =
+  (typeof PaymentIntentWebhookEventType)[keyof typeof PaymentIntentWebhookEventType];
+
+export const PaymentIntentWebhookEventType = {
+  payment_intentcreated: "payment_intent.created",
+  payment_intentawaiting_deposit: "payment_intent.awaiting_deposit",
+  payment_intentsucceeded: "payment_intent.succeeded",
+  payment_intentamount_mismatch: "payment_intent.amount_mismatch",
+  payment_intentexpired: "payment_intent.expired",
+  payment_intentcancelled: "payment_intent.cancelled",
+  payment_intentreversed: "payment_intent.reversed",
+} as const;
+
+export type PaymentIntentWebhookEventData = {
+  paymentIntentId: string;
+  merchantOrderId: string;
+  /** @nullable */
+  externalCustomerId?: string | null;
+  /** @nullable */
+  memberId?: number | null;
+  /** @pattern ^[1-9][0-9]*$ */
+  amount: string;
+  currency: "KRW";
+  status: string;
+  /** @nullable */
+  trackingNumber?: string | null;
+  /** @nullable */
+  transactionId?: number | null;
+  /** @nullable */
+  providerTransactionId?: string | null;
+  /**
+   * @nullable
+   * @pattern ^[1-9][0-9]*$
+   */
+  receivedAmount?: string | null;
+  occurredAt: string;
+};
+
+export interface PaymentIntentWebhookEvent {
+  id: string;
+  type: PaymentIntentWebhookEventType;
+  createdAt: string;
+  data: PaymentIntentWebhookEventData;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -33,7 +164,6 @@ export interface AdminUser {
 
 export interface AuthResponse {
   user: AdminUser;
-  token: string;
 }
 
 export interface AdminUserList {
@@ -444,6 +574,10 @@ export interface OtpSettingsUpdate {
   useOtpForWithdrawal?: boolean;
 }
 
+export type TodoPayApiKeyParameter = string;
+
+export type IdempotencyKeyParameter = string;
+
 export type ListUsersParams = {
   role?: string;
   /**
@@ -540,4 +674,21 @@ export type GetDailyStatisticsParams = {
 export type ListNoticesParams = {
   page?: number;
   limit?: number;
+};
+
+export type GetExternalPaymentIntentByMerchantOrderParams = {
+  /**
+   * @maxLength 100
+   */
+  merchantOrderId: string;
+  /**
+   * When omitted, returns the latest attempt for the merchant order.
+   * @minimum 1
+   */
+  attemptNumber?: number;
+};
+
+export type AttachExternalPaymentIntentMemberBody = {
+  /** @minimum 1 */
+  memberId: number;
 };

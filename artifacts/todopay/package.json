@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --config vite.config.ts --host 127.0.0.1",
     "build": "node ./scripts/build-todopay.mjs",
+    "build:all": "pnpm run build:merchant && pnpm run build:partner && pnpm run build:platform",
     "build:merchant": "node ./scripts/build-todopay.mjs merchant",
     "build:partner": "node ./scripts/build-todopay.mjs partner",
     "build:platform": "node ./scripts/build-todopay.mjs platform",

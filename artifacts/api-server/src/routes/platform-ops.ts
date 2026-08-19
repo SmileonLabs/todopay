@@ -24,7 +24,6 @@ import {
   maskName,
   maskPhone,
 } from "../lib/partner-payment-view.js";
-import { paymentQueue } from "../lib/payment-queue.js";
 import { connectRedis, redis } from "../lib/redis.js";
 import { runFinancialReconciliation } from "../lib/reconciliation-worker.js";
 
@@ -828,20 +827,21 @@ router.get("/platform/system-status", async (req, res) => {
       await connectRedis();
       cache = (await redis.ping()) === "PONG" ? "ok" : "error";
     }
-    if (paymentQueue) {
-      const counts = await paymentQueue.getJobCounts(
-        "waiting",
-        "active",
-        "failed",
-        "delayed",
-      );
-      queue = {
-        waiting: counts.waiting ?? 0,
-        active: counts.active ?? 0,
-        failed: counts.failed ?? 0,
-        delayed: counts.delayed ?? 0,
-      };
-    }
+    const counts = await db.execute(sql`
+      SELECT
+        count(*) FILTER (WHERE status IN ('received', 'retry') AND next_attempt_at <= NOW()) AS waiting,
+        count(*) FILTER (WHERE status = 'processing') AS active,
+        count(*) FILTER (WHERE status = 'dead') AS failed,
+        count(*) FILTER (WHERE status = 'retry' AND next_attempt_at > NOW()) AS delayed
+      FROM payment_events
+    `);
+    const row = counts.rows[0] as Record<string, string | number> | undefined;
+    queue = {
+      waiting: Number(row?.waiting ?? 0),
+      active: Number(row?.active ?? 0),
+      failed: Number(row?.failed ?? 0),
+      delayed: Number(row?.delayed ?? 0),
+    };
   } catch {
     cache = "error";
   }

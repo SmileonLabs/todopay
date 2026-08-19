@@ -2,8 +2,10 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import cors from "cors";
 import helmet from "helmet";
 import pinoHttp from "pino-http";
+import cookieParser from "cookie-parser";
 import router from "./routes";
 import { logger } from "./lib/logger";
+import { promoteSessionCookie } from "./lib/session-cookie.js";
 
 const app: Express = express();
 const allowedOrigins = (process.env.CORS_ORIGINS ?? "http://127.0.0.1:21259,http://localhost:21259")
@@ -40,10 +42,13 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error("Origin is not allowed"));
   },
-  methods: ["GET", "POST", "PATCH", "DELETE"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
   allowedHeaders: ["Authorization", "Content-Type", "Idempotency-Key", "X-TodoPay-OTP"],
+  credentials: true,
   maxAge: 86_400,
 }));
+app.use(cookieParser());
+app.use(promoteSessionCookie);
 app.use(express.json({ limit: "32kb" }));
 app.use(express.urlencoded({ extended: true, limit: "32kb" }));
 

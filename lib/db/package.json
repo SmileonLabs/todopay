@@ -13,7 +13,9 @@
     "migrate-production": "node ./scripts/apply-production-migrations.mjs",
     "backfill-merchant-fees": "node ./scripts/backfill-merchant-fees.mjs",
     "set-merchant-api-key": "node ./scripts/set-merchant-api-key.mjs",
-    "set-merchant-allowed-ips": "node ./scripts/set-merchant-allowed-ips.mjs"
+    "set-merchant-allowed-ips": "node ./scripts/set-merchant-allowed-ips.mjs",
+    "test:integration": "node ./scripts/run-financial-integration-tests.mjs",
+    "test:load": "node ./scripts/run-financial-load-test.mjs"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

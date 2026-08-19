@@ -9,5 +9,4 @@ import type { AdminUser } from "./adminUser";
 
 export interface AuthResponse {
   user: AdminUser;
-  token: string;
 }

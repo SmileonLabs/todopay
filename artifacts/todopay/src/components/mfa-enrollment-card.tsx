@@ -22,9 +22,9 @@ export function MfaEnrollmentCard() {
   const request = async <T,>(path: string, init?: RequestInit): Promise<T> => {
     const response = await fetch(`/api${path}`, {
       ...init,
+      credentials: "include",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
         ...(init?.headers ?? {}),
       },
     });

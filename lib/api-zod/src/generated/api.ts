@@ -37,7 +37,6 @@ export const LoginResponse = zod.object({
     parentName: zod.string().nullish(),
     createdAt: zod.string(),
   }),
-  token: zod.string(),
 });
 
 /**
@@ -886,4 +885,445 @@ export const UpdateOtpSettingsResponse = zod.object({
   useOtpForDeposit: zod.boolean(),
   useOtpForWithdrawal: zod.boolean(),
   otpSecret: zod.string().nullish(),
+});
+
+/**
+ * @summary Create an idempotent merchant order payment intent
+ */
+export const createExternalPaymentIntentHeaderXTodoPayApiKeyRegExp = new RegExp(
+  "^tp_live_[A-Za-z0-9_-]{32,}$",
+);
+export const createExternalPaymentIntentHeaderIdempotencyKeyMin = 8;
+export const createExternalPaymentIntentHeaderIdempotencyKeyMax = 128;
+
+export const createExternalPaymentIntentHeaderIdempotencyKeyRegExp = new RegExp(
+  "^[A-Za-z0-9._:-]+$",
+);
+
+export const CreateExternalPaymentIntentHeader = zod.object({
+  "X-TodoPay-Api-Key": zod
+    .string()
+    .regex(createExternalPaymentIntentHeaderXTodoPayApiKeyRegExp),
+  "Idempotency-Key": zod
+    .string()
+    .min(createExternalPaymentIntentHeaderIdempotencyKeyMin)
+    .max(createExternalPaymentIntentHeaderIdempotencyKeyMax)
+    .regex(createExternalPaymentIntentHeaderIdempotencyKeyRegExp),
+});
+
+export const createExternalPaymentIntentBodyThreeMerchantOrderIdMax = 100;
+
+export const createExternalPaymentIntentBodyThreeMerchantOrderIdRegExp =
+  new RegExp("^[A-Za-z0-9._:-]+$");
+export const createExternalPaymentIntentBodyThreeExternalCustomerIdMax = 100;
+
+export const createExternalPaymentIntentBodyThreeAttemptNumberDefault = 1;
+export const createExternalPaymentIntentBodyThreeAttemptNumberMax = 999999;
+
+export const createExternalPaymentIntentBodyThreeAmountRegExp = new RegExp(
+  "^[1-9][0-9]{0,14}$",
+);
+export const createExternalPaymentIntentBodyThreeCurrencyDefault = `KRW`;
+export const createExternalPaymentIntentBodyThreeDescriptionMax = 200;
+
+export const CreateExternalPaymentIntentBody = zod
+  .union([zod.unknown(), zod.unknown()])
+  .and(
+    zod.object({
+      merchantOrderId: zod
+        .string()
+        .max(createExternalPaymentIntentBodyThreeMerchantOrderIdMax)
+        .regex(createExternalPaymentIntentBodyThreeMerchantOrderIdRegExp),
+      externalCustomerId: zod
+        .string()
+        .max(createExternalPaymentIntentBodyThreeExternalCustomerIdMax)
+        .optional(),
+      memberId: zod.number().min(1).optional(),
+      attemptNumber: zod
+        .number()
+        .min(1)
+        .max(createExternalPaymentIntentBodyThreeAttemptNumberMax)
+        .default(createExternalPaymentIntentBodyThreeAttemptNumberDefault)
+        .describe(
+          "Increment only for a deliberate new payment attempt for the same merchant order.",
+        ),
+      amount: zod
+        .string()
+        .regex(createExternalPaymentIntentBodyThreeAmountRegExp)
+        .describe(
+          "Positive whole KRW amount. JSON numbers and fractional values are rejected.",
+        ),
+      currency: zod
+        .literal("KRW")
+        .default(createExternalPaymentIntentBodyThreeCurrencyDefault),
+      expiresAt: zod.coerce
+        .date()
+        .optional()
+        .describe(
+          "Between 5 minutes and 30 days from creation. Defaults to 24 hours.",
+        ),
+      description: zod
+        .string()
+        .max(createExternalPaymentIntentBodyThreeDescriptionMax)
+        .optional(),
+      metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+          "Maximum canonical JSON size is 8192 bytes. Do not include secrets or unnecessary personal data.",
+        ),
+    }),
+  );
+
+export const createExternalPaymentIntentResponseIdRegExp = new RegExp(
+  "^pi_[a-f0-9]{32}$",
+);
+
+export const createExternalPaymentIntentResponseAmountRegExp = new RegExp(
+  "^[1-9][0-9]\*$",
+);
+export const createExternalPaymentIntentResponseTrackingNumberMax = 50;
+
+export const CreateExternalPaymentIntentResponse = zod.object({
+  id: zod.string().regex(createExternalPaymentIntentResponseIdRegExp),
+  merchantOrderId: zod.string(),
+  attemptNumber: zod.number().min(1).optional(),
+  externalCustomerId: zod.string().nullish(),
+  memberId: zod.number().nullish(),
+  amount: zod.string().regex(createExternalPaymentIntentResponseAmountRegExp),
+  currency: zod.literal("KRW"),
+  status: zod.enum([
+    "requires_member",
+    "awaiting_deposit",
+    "processing",
+    "succeeded",
+    "amount_mismatch",
+    "expired",
+    "cancelled",
+    "reversed",
+  ]),
+  trackingNumber: zod
+    .string()
+    .max(createExternalPaymentIntentResponseTrackingNumberMax)
+    .nullish()
+    .describe(
+      "KPPay trackId derived from merchant order ID and attempt number. It is not registered with KPPay until the explicit live-binding phase.",
+    ),
+  expiresAt: zod.coerce.date(),
+  virtualAccount: zod
+    .union([
+      zod.object({
+        bankName: zod.string(),
+        accountNumber: zod.string(),
+        status: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  description: zod.string().nullish(),
+  metadata: zod.record(zod.string(), zod.unknown()).optional(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Get a payment intent by merchant order ID
+ */
+export const getExternalPaymentIntentByMerchantOrderQueryMerchantOrderIdMax = 100;
+
+export const GetExternalPaymentIntentByMerchantOrderQueryParams = zod.object({
+  merchantOrderId: zod.coerce
+    .string()
+    .max(getExternalPaymentIntentByMerchantOrderQueryMerchantOrderIdMax),
+  attemptNumber: zod.coerce
+    .number()
+    .min(1)
+    .optional()
+    .describe(
+      "When omitted, returns the latest attempt for the merchant order.",
+    ),
+});
+
+export const getExternalPaymentIntentByMerchantOrderHeaderXTodoPayApiKeyRegExp =
+  new RegExp("^tp_live_[A-Za-z0-9_-]{32,}$");
+
+export const GetExternalPaymentIntentByMerchantOrderHeader = zod.object({
+  "X-TodoPay-Api-Key": zod
+    .string()
+    .regex(getExternalPaymentIntentByMerchantOrderHeaderXTodoPayApiKeyRegExp),
+});
+
+export const getExternalPaymentIntentByMerchantOrderResponseIdRegExp =
+  new RegExp("^pi_[a-f0-9]{32}$");
+
+export const getExternalPaymentIntentByMerchantOrderResponseAmountRegExp =
+  new RegExp("^[1-9][0-9]\*$");
+export const getExternalPaymentIntentByMerchantOrderResponseTrackingNumberMax = 50;
+
+export const GetExternalPaymentIntentByMerchantOrderResponse = zod.object({
+  id: zod
+    .string()
+    .regex(getExternalPaymentIntentByMerchantOrderResponseIdRegExp),
+  merchantOrderId: zod.string(),
+  attemptNumber: zod.number().min(1).optional(),
+  externalCustomerId: zod.string().nullish(),
+  memberId: zod.number().nullish(),
+  amount: zod
+    .string()
+    .regex(getExternalPaymentIntentByMerchantOrderResponseAmountRegExp),
+  currency: zod.literal("KRW"),
+  status: zod.enum([
+    "requires_member",
+    "awaiting_deposit",
+    "processing",
+    "succeeded",
+    "amount_mismatch",
+    "expired",
+    "cancelled",
+    "reversed",
+  ]),
+  trackingNumber: zod
+    .string()
+    .max(getExternalPaymentIntentByMerchantOrderResponseTrackingNumberMax)
+    .nullish()
+    .describe(
+      "KPPay trackId derived from merchant order ID and attempt number. It is not registered with KPPay until the explicit live-binding phase.",
+    ),
+  expiresAt: zod.coerce.date(),
+  virtualAccount: zod
+    .union([
+      zod.object({
+        bankName: zod.string(),
+        accountNumber: zod.string(),
+        status: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  description: zod.string().nullish(),
+  metadata: zod.record(zod.string(), zod.unknown()).optional(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Get a payment intent by TodoPay ID
+ */
+export const getExternalPaymentIntentPathIdRegExp = new RegExp(
+  "^pi_[a-f0-9]{32}$",
+);
+
+export const GetExternalPaymentIntentParams = zod.object({
+  id: zod.coerce.string().regex(getExternalPaymentIntentPathIdRegExp),
+});
+
+export const getExternalPaymentIntentHeaderXTodoPayApiKeyRegExp = new RegExp(
+  "^tp_live_[A-Za-z0-9_-]{32,}$",
+);
+
+export const GetExternalPaymentIntentHeader = zod.object({
+  "X-TodoPay-Api-Key": zod
+    .string()
+    .regex(getExternalPaymentIntentHeaderXTodoPayApiKeyRegExp),
+});
+
+export const getExternalPaymentIntentResponseIdRegExp = new RegExp(
+  "^pi_[a-f0-9]{32}$",
+);
+
+export const getExternalPaymentIntentResponseAmountRegExp = new RegExp(
+  "^[1-9][0-9]\*$",
+);
+export const getExternalPaymentIntentResponseTrackingNumberMax = 50;
+
+export const GetExternalPaymentIntentResponse = zod.object({
+  id: zod.string().regex(getExternalPaymentIntentResponseIdRegExp),
+  merchantOrderId: zod.string(),
+  attemptNumber: zod.number().min(1).optional(),
+  externalCustomerId: zod.string().nullish(),
+  memberId: zod.number().nullish(),
+  amount: zod.string().regex(getExternalPaymentIntentResponseAmountRegExp),
+  currency: zod.literal("KRW"),
+  status: zod.enum([
+    "requires_member",
+    "awaiting_deposit",
+    "processing",
+    "succeeded",
+    "amount_mismatch",
+    "expired",
+    "cancelled",
+    "reversed",
+  ]),
+  trackingNumber: zod
+    .string()
+    .max(getExternalPaymentIntentResponseTrackingNumberMax)
+    .nullish()
+    .describe(
+      "KPPay trackId derived from merchant order ID and attempt number. It is not registered with KPPay until the explicit live-binding phase.",
+    ),
+  expiresAt: zod.coerce.date(),
+  virtualAccount: zod
+    .union([
+      zod.object({
+        bankName: zod.string(),
+        accountNumber: zod.string(),
+        status: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  description: zod.string().nullish(),
+  metadata: zod.record(zod.string(), zod.unknown()).optional(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * @summary Cancel an unpaid payment intent
+ */
+export const cancelExternalPaymentIntentPathIdRegExp = new RegExp(
+  "^pi_[a-f0-9]{32}$",
+);
+
+export const CancelExternalPaymentIntentParams = zod.object({
+  id: zod.coerce.string().regex(cancelExternalPaymentIntentPathIdRegExp),
+});
+
+export const cancelExternalPaymentIntentHeaderXTodoPayApiKeyRegExp = new RegExp(
+  "^tp_live_[A-Za-z0-9_-]{32,}$",
+);
+
+export const CancelExternalPaymentIntentHeader = zod.object({
+  "X-TodoPay-Api-Key": zod
+    .string()
+    .regex(cancelExternalPaymentIntentHeaderXTodoPayApiKeyRegExp),
+});
+
+export const cancelExternalPaymentIntentResponseIdRegExp = new RegExp(
+  "^pi_[a-f0-9]{32}$",
+);
+
+export const cancelExternalPaymentIntentResponseAmountRegExp = new RegExp(
+  "^[1-9][0-9]\*$",
+);
+export const cancelExternalPaymentIntentResponseTrackingNumberMax = 50;
+
+export const CancelExternalPaymentIntentResponse = zod.object({
+  id: zod.string().regex(cancelExternalPaymentIntentResponseIdRegExp),
+  merchantOrderId: zod.string(),
+  attemptNumber: zod.number().min(1).optional(),
+  externalCustomerId: zod.string().nullish(),
+  memberId: zod.number().nullish(),
+  amount: zod.string().regex(cancelExternalPaymentIntentResponseAmountRegExp),
+  currency: zod.literal("KRW"),
+  status: zod.enum([
+    "requires_member",
+    "awaiting_deposit",
+    "processing",
+    "succeeded",
+    "amount_mismatch",
+    "expired",
+    "cancelled",
+    "reversed",
+  ]),
+  trackingNumber: zod
+    .string()
+    .max(cancelExternalPaymentIntentResponseTrackingNumberMax)
+    .nullish()
+    .describe(
+      "KPPay trackId derived from merchant order ID and attempt number. It is not registered with KPPay until the explicit live-binding phase.",
+    ),
+  expiresAt: zod.coerce.date(),
+  virtualAccount: zod
+    .union([
+      zod.object({
+        bankName: zod.string(),
+        accountNumber: zod.string(),
+        status: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  description: zod.string().nullish(),
+  metadata: zod.record(zod.string(), zod.unknown()).optional(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
+});
+
+/**
+ * Transitions only requires_member to awaiting_deposit. Repeating the same member after attachment is idempotent; a different member is rejected.
+ * @summary Attach an active verified TodoPay member and virtual account
+ */
+export const attachExternalPaymentIntentMemberPathIdRegExp = new RegExp(
+  "^pi_[a-f0-9]{32}$",
+);
+
+export const AttachExternalPaymentIntentMemberParams = zod.object({
+  id: zod.coerce.string().regex(attachExternalPaymentIntentMemberPathIdRegExp),
+});
+
+export const attachExternalPaymentIntentMemberHeaderXTodoPayApiKeyRegExp =
+  new RegExp("^tp_live_[A-Za-z0-9_-]{32,}$");
+
+export const AttachExternalPaymentIntentMemberHeader = zod.object({
+  "X-TodoPay-Api-Key": zod
+    .string()
+    .regex(attachExternalPaymentIntentMemberHeaderXTodoPayApiKeyRegExp),
+});
+
+export const AttachExternalPaymentIntentMemberBody = zod.object({
+  memberId: zod.number().min(1),
+});
+
+export const attachExternalPaymentIntentMemberResponseIdRegExp = new RegExp(
+  "^pi_[a-f0-9]{32}$",
+);
+
+export const attachExternalPaymentIntentMemberResponseAmountRegExp = new RegExp(
+  "^[1-9][0-9]\*$",
+);
+export const attachExternalPaymentIntentMemberResponseTrackingNumberMax = 50;
+
+export const AttachExternalPaymentIntentMemberResponse = zod.object({
+  id: zod.string().regex(attachExternalPaymentIntentMemberResponseIdRegExp),
+  merchantOrderId: zod.string(),
+  attemptNumber: zod.number().min(1).optional(),
+  externalCustomerId: zod.string().nullish(),
+  memberId: zod.number().nullish(),
+  amount: zod
+    .string()
+    .regex(attachExternalPaymentIntentMemberResponseAmountRegExp),
+  currency: zod.literal("KRW"),
+  status: zod.enum([
+    "requires_member",
+    "awaiting_deposit",
+    "processing",
+    "succeeded",
+    "amount_mismatch",
+    "expired",
+    "cancelled",
+    "reversed",
+  ]),
+  trackingNumber: zod
+    .string()
+    .max(attachExternalPaymentIntentMemberResponseTrackingNumberMax)
+    .nullish()
+    .describe(
+      "KPPay trackId derived from merchant order ID and attempt number. It is not registered with KPPay until the explicit live-binding phase.",
+    ),
+  expiresAt: zod.coerce.date(),
+  virtualAccount: zod
+    .union([
+      zod.object({
+        bankName: zod.string(),
+        accountNumber: zod.string(),
+        status: zod.string(),
+      }),
+      zod.null(),
+    ])
+    .optional(),
+  description: zod.string().nullish(),
+  metadata: zod.record(zod.string(), zod.unknown()).optional(),
+  createdAt: zod.coerce.date(),
+  updatedAt: zod.coerce.date(),
 });

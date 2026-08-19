@@ -6,6 +6,7 @@ import { z } from "zod/v4";
 import { hashPassword, requireMember, signMemberToken, verifyPassword } from "../lib/auth.js";
 import { writeAuditLog } from "../lib/audit.js";
 import { allowRequest } from "../lib/rate-limit.js";
+import { clearMemberSessionCookie, setMemberSessionCookie } from "../lib/session-cookie.js";
 
 const router = Router();
 
@@ -59,6 +60,7 @@ router.post("/member/auth/login", async (req, res) => {
     await db.update(membersTable).set({ passwordHash: await hashPassword(password) }).where(eq(membersTable.id, member.id));
   }
   const token = signMemberToken(member.id, member.loginId);
+  setMemberSessionCookie(res, token);
   await writeAuditLog(req, { actorId: member.id, actorType: "member", action: "member.login", resourceType: "member", resourceId: member.id });
   const [account] = await db.select().from(virtualAccountsTable).where(eq(virtualAccountsTable.memberId, member.id));
   res.json({
@@ -79,8 +81,12 @@ router.post("/member/auth/login", async (req, res) => {
           status: account.status,
         }
       : null,
-    token,
   });
+});
+
+router.post("/member/auth/logout", async (_req, res) => {
+  clearMemberSessionCookie(res);
+  res.json({ success: true });
 });
 
 router.get("/member/auth/me", async (req, res) => {
