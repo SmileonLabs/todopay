@@ -1,4 +1,4 @@
-import type { CookieOptions, Request, Response } from "express";
+import type { CookieOptions, NextFunction, Request, Response } from "express";
 
 export const ADMIN_SESSION_COOKIE = "todopay_admin_session";
 export const MEMBER_SESSION_COOKIE = "todopay_member_session";
@@ -43,10 +43,19 @@ export function clearMemberSessionCookie(res: Response): void {
  * Keep the existing authorization helpers and non-browser clients compatible
  * while making an HttpOnly cookie the browser default.
  */
-export function promoteSessionCookie(req: Request): void {
-  if (req.headers.authorization) return;
-  const cookies = req.cookies as Record<string, string | undefined> | undefined;
-  const isMemberRoute = req.path.startsWith("/api/member/");
-  const token = cookies?.[isMemberRoute ? MEMBER_SESSION_COOKIE : ADMIN_SESSION_COOKIE];
-  if (token) req.headers.authorization = `Bearer ${token}`;
+export function promoteSessionCookie(
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): void {
+  if (!req.headers.authorization) {
+    const cookies = req.cookies as
+      | Record<string, string | undefined>
+      | undefined;
+    const isMemberRoute = req.path.startsWith("/api/member/");
+    const token =
+      cookies?.[isMemberRoute ? MEMBER_SESSION_COOKIE : ADMIN_SESSION_COOKIE];
+    if (token) req.headers.authorization = `Bearer ${token}`;
+  }
+  next();
 }
